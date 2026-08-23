@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
+import { FloatingCta } from '@/components/ui/FloatingCta';
 import { Spinner } from '@/components/ui/Spinner';
 import { LevelRing, XpBar } from '@/components/profile/LevelRing';
 import { UsernameEditor } from '@/components/profile/UsernameEditor';
@@ -142,7 +143,8 @@ export default function AccountPage() {
   const winRate = played > 0 ? Math.round((wins / played) * 100) : 0;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5">
+    <>
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-28">
       <header className="flex items-center justify-between py-1">
         <Link href="/">
           <Logo className="text-xl" />
@@ -254,9 +256,9 @@ export default function AccountPage() {
         )}
       </section>
 
-      <Link href="/matchmaking" className="mt-auto block pb-4">
-        <Button size="xl">RECHERCHER UN BATTLE</Button>
-      </Link>
     </main>
+
+    <FloatingCta />
+    </>
   );
 }

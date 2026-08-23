@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
+import { FloatingCta } from '@/components/ui/FloatingCta';
 import { Spinner } from '@/components/ui/Spinner';
 import { Podium, RankRow } from '@/components/leaderboard/Podium';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
@@ -47,7 +48,8 @@ export default function LeaderboardPage() {
   const rest = players?.slice(3) ?? [];
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5">
+    <>
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-28">
       <header className="flex items-center justify-between py-1">
         <Link href="/">
           <Logo className="text-xl" />
@@ -127,9 +129,9 @@ export default function LeaderboardPage() {
         </>
       )}
 
-      <Link href="/matchmaking" className="mt-auto block pb-4">
-        <Button size="xl">RECHERCHER UN BATTLE</Button>
-      </Link>
     </main>
+
+    <FloatingCta />
+    </>
   );
 }

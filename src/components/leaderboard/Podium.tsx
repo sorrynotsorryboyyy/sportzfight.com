@@ -30,8 +30,10 @@ function Avatar({
     ring && `ring-2 ${ring} ring-offset-2 ring-offset-ink-950`,
   );
   if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
+      // Google avatar URLs are remote and unoptimisable by next/image without
+      // configuring the host; a 32-68px circle is not worth that.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt=""
