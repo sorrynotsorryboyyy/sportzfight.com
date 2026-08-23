@@ -1269,3 +1269,141 @@ describe('usernames — legacy migration', () => {
     );
   });
 });
+
+describe('progression — backfilling battles the client missed', () => {
+  /**
+   * Crediting normally happens on the battle screen. If the player closed the
+   * tab, lost connection, or played before the XP system shipped, the payout
+   * never happened — and rules cannot backfill on their own. /compte therefore
+   * reconciles on load, so these are the writes that recovery depends on.
+   */
+  const FINISHED = 3 + 60 + 5;
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    ...over,
+  });
+
+  it('credits an OLD finished battle that was never claimed', async () => {
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 12,
+      player2Score: 4,
+      player1Meta: { autoReps: 12, manualAdjust: 0, source: 'camera' },
+      player2Meta: { autoReps: 4, manualAdjust: 0, source: 'camera' },
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    // A profile with no counters at all — exactly what predates the feature.
+    await consoleWrite('users/' + P1, profile());
+
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+    // 100 + 12*2 = 124 xp, 25 coins.
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 124,
+        coins: 25,
+        totalReps: 12,
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        bestScore: 12,
+      }),
+    );
+  });
+
+  it('credits a 0-0 draw, the case that pays the least', async () => {
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 0,
+      player2Score: 0,
+      player1Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
+      player2Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
+      winner: 'draw',
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    await consoleWrite('users/' + P1, profile());
+
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 60,
+        coins: 15,
+        totalReps: 0,
+        wins: 0,
+        losses: 0,
+        draws: 1,
+        bestScore: 0,
+      }),
+    );
+  });
+
+  it('a profile carrying a console-set role can still be credited', async () => {
+    // The admin account is the one being tested with; a role must not block
+    // the payout path.
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 5,
+      player2Score: 1,
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+  });
+
+  it('reconciling twice pays exactly once', async () => {
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 12,
+      player2Score: 4,
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    await consoleWrite('users/' + P1, profile());
+
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'users', P1, 'creditedBattles', BID), {
+        at: serverTimestamp(),
+      }),
+    );
+    // Settle clears the claim, as the real client does.
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 124,
+        coins: 25,
+        totalReps: 12,
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        bestScore: 12,
+      }),
+    );
+
+    // A second pass over the same battle must now be refused at the claim —
+    // the receipt is what makes reconciliation safe to run on every visit.
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+  });
+});

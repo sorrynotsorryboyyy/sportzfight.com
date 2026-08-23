@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './client';
 import { coinsFor, outcomeFor, xpFor } from '@/lib/progression/awards';
+import { battleHistory } from './battles';
 import type { BattleDoc, UserDoc } from '@/lib/battle/types';
 
 /**
@@ -137,4 +138,41 @@ export async function resumePendingCredit(uid: string): Promise<CreditResult> {
     xp: xpFor(outcome, reps),
     coins: coinsFor(outcome),
   });
+}
+
+/**
+ * Pay out every finished battle that has no receipt yet.
+ *
+ * Crediting normally happens on the battle screen the moment the result lands,
+ * but that only works if the player is still there: close the tab a second
+ * early, lose the connection, or play a battle that finished before this
+ * feature existed, and the XP was gone for good. Rules cannot backfill on
+ * their own, so the account screen reconciles instead.
+ *
+ * Safe by construction — the receipt makes an already-paid battle a no-op, so
+ * this can run on every visit without ever double-crediting.
+ */
+export async function reconcileCredits(
+  uid: string,
+  max = 20,
+): Promise<{ credited: number; xp: number; coins: number }> {
+  // Finish a half-done credit first, or its claim would block the loop below.
+  await resumePendingCredit(uid).catch(() => {});
+
+  const battles = await battleHistory(uid, max);
+  let credited = 0;
+  let xp = 0;
+  let coins = 0;
+
+  // Oldest first, so the history reads in the order it was played.
+  for (const b of [...battles].reverse()) {
+    const r = await creditBattle(uid, b.id, b).catch(() => NOTHING);
+    if (r.credited) {
+      credited++;
+      xp += r.xp;
+      coins += r.coins;
+    }
+  }
+
+  return { credited, xp, coins };
 }

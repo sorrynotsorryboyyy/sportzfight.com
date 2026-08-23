@@ -14,7 +14,7 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { battleHistory } from '@/lib/firebase/battles';
-import { resumePendingCredit } from '@/lib/firebase/stats';
+import { reconcileCredits } from '@/lib/firebase/stats';
 import { outcomeFor, xpFor } from '@/lib/progression/awards';
 import { getExercise } from '@/lib/exercise/registry';
 import { cn } from '@/lib/utils/cn';
@@ -108,11 +108,19 @@ export default function AccountPage() {
 
   const uid = user?.uid ?? null;
 
-  // Finish any credit that was claimed but never settled (tab closed between
-  // the two phases). Idempotent: the receipt makes a second run a no-op.
+  // Pay out anything the battle screen missed — a tab closed before the
+  // result landed, a dropped connection, or a battle played before the XP
+  // system existed. Idempotent: receipts make an already-paid battle a no-op,
+  // so this is safe to run on every visit.
   useEffect(() => {
     if (!uid) return;
-    void resumePendingCredit(uid).catch(() => {});
+    void reconcileCredits(uid)
+      .then((r) => {
+        // The profile updates itself through its onSnapshot subscription; only
+        // the history list needs a nudge, and only if something actually paid.
+        if (r.credited > 0) void battleHistory(uid, 20).then(setHistory);
+      })
+      .catch(() => {});
   }, [uid]);
 
   useEffect(() => {
