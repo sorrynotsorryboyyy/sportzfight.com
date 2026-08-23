@@ -17,8 +17,15 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from './client';
+import type { UserDoc } from '@/lib/battle/types';
 import { bootstrapClock, resetClock } from './clock';
 
 interface AuthValue {
@@ -26,6 +33,14 @@ interface AuthValue {
   username: string | null;
   avatar: string | null;
   loading: boolean;
+  /**
+   * Set BY HAND in the Firestore console. The rules forbid every client write
+   * path, but they also cannot READ it (no Cloud Functions means no custom
+   * claims), so this gates a dev-only UI and is not an authorization boundary.
+   */
+  isAdmin: boolean;
+  /** True until the profile document has resolved. */
+  roleLoading: boolean;
   /** Google is the only sign-in method in V1. */
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -71,6 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // When Firebase is absent there is no auth state to wait for, so the
   // provider starts settled rather than flipping `loading` from an effect.
   const [loading, setLoading] = useState(isFirebaseConfigured);
+  // `null` means "not resolved yet" for the CURRENT user. Signed-out is
+  // derived during render rather than written from an effect: there is no
+  // profile to wait for, so there is nothing to synchronise.
+  const [adminFlag, setAdminFlag] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!isFirebaseConfigured) return;
@@ -99,12 +118,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Live subscription rather than a one-shot read: flipping the field in the
+  // Firestore console should light up the nav without a reload, which is the
+  // entire point of a hand-managed dev flag.
+  useEffect(() => {
+    if (!isFirebaseConfigured || !user) return;
+    return onSnapshot(
+      doc(db(), 'users', user.uid),
+      (snap) =>
+        setAdminFlag((snap.data() as UserDoc | undefined)?.role === 'admin'),
+      () => setAdminFlag(false),
+    );
+  }, [user]);
+
+  // Reset when the account changes, so a previous admin session cannot leak
+  // its flag onto the next user for a frame.
+  const [flagOwner, setFlagOwner] = useState<string | null>(user?.uid ?? null);
+  if (flagOwner !== (user?.uid ?? null)) {
+    setFlagOwner(user?.uid ?? null);
+    setAdminFlag(null);
+  }
+
+  const isAdmin = !!user && adminFlag === true;
+  const roleLoading = !!user && adminFlag === null;
+
   const value = useMemo<AuthValue>(
     () => ({
       user,
       username,
       avatar,
       loading,
+      isAdmin,
+      roleLoading,
       async signInWithGoogle() {
         const provider = new GoogleAuthProvider();
         // Always show the chooser: people testing a 1vs1 app routinely want a
@@ -125,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetClock();
       },
     }),
-    [user, username, avatar, loading],
+    [user, username, avatar, loading, isAdmin, roleLoading],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

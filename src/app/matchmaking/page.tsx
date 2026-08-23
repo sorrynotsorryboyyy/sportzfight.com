@@ -6,31 +6,29 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
-import { Spinner } from '@/components/ui/Spinner';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
-import { createBattle } from '@/lib/firebase/battles';
-import { DEFAULT_EXERCISE, getExercise } from '@/lib/exercise/registry';
-import { DEFAULT_DURATION_SECS } from '@/lib/battle/constants';
+import { findOrCreateBattle } from '@/lib/firebase/matchmaking';
+import { getExercise, DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 
-export default function CreateBattlePage() {
+export default function MatchmakingPage() {
   const { user, loading } = useRequireAuth();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  // Guards React StrictMode's double-invoked effects, which would otherwise
+  // post two battles into the pool on every visit in development.
   const startedRef = useRef(false);
 
   const exercise = getExercise(DEFAULT_EXERCISE);
 
-  // Create as soon as we know who the user is. The ref guards against React's
-  // double-invoked effects in development creating two battles.
   useEffect(() => {
     if (!user || startedRef.current) return;
     startedRef.current = true;
 
-    void createBattle(user.uid, DEFAULT_EXERCISE, DEFAULT_DURATION_SECS)
+    void findOrCreateBattle(user.uid)
       .then(({ id }) => router.replace(`/battle/${id}`))
       .catch(() => {
-        setError("Impossible de créer le battle. Vérifie ta connexion.");
+        setError('Impossible de trouver un adversaire. Vérifie ta connexion.');
         startedRef.current = false;
       });
   }, [user, router]);
@@ -45,7 +43,7 @@ export default function CreateBattlePage() {
 
       {error ? (
         <div className="flex flex-col gap-4">
-          <h1 className="text-2xl font-black uppercase tracking-tight">Oups</h1>
+          <h1 className="text-3xl font-black uppercase tracking-tighter">Oups</h1>
           <p className="text-ink-300">{error}</p>
           <Button onClick={() => router.refresh()}>Réessayer</Button>
           <Link href="/">
@@ -54,14 +52,33 @@ export default function CreateBattlePage() {
         </div>
       ) : (
         <div className="text-center">
-          <div className="mb-4 text-6xl" aria-hidden>
-            {exercise.emoji}
+          <div className="relative mx-auto mb-8 grid size-32 place-items-center">
+            <span className="absolute inset-0 animate-ping rounded-full bg-volt-500/20" />
+            <span className="absolute inset-4 animate-pulse rounded-full bg-volt-500/15" />
+            <span className="relative text-6xl" aria-hidden>
+              {exercise.emoji}
+            </span>
           </div>
+
           <h1 className="text-3xl font-black uppercase tracking-tighter">
-            {exercise.label}
+            Recherche d’un adversaire
           </h1>
-          <p className="mt-2 text-ink-400">{exercise.tagline}</p>
-          <Spinner label={loading ? 'Connexion…' : 'Création du battle…'} />
+          <p className="mt-3 text-ink-400">
+            {loading ? 'Connexion…' : exercise.tagline}
+          </p>
+
+          <div
+            className="mt-8 flex items-center justify-center gap-2 text-sm text-ink-500"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="size-1.5 animate-pulse rounded-full bg-volt-500" />
+            Mise en relation…
+          </div>
+
+          <Link href="/" className="mt-10 block">
+            <Button variant="ghost">Annuler</Button>
+          </Link>
         </div>
       )}
     </main>

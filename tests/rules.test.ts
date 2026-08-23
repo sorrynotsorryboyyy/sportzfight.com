@@ -6,6 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
 import {
+  deleteField,
   doc,
   getDoc,
   setDoc,
@@ -14,7 +15,7 @@ import {
   Timestamp,
   type Firestore,
 } from 'firebase/firestore';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 /**
  * These tests are the regression suite for the trust boundary. Every case
@@ -49,8 +50,10 @@ beforeEach(async () => {
 
 const dbOf = (uid: string) => env.authenticatedContext(uid).firestore() as unknown as Firestore;
 
+// No `code`: entry is random matchmaking and battles are addressed by
+// document id. The create rule uses hasAll, so a legacy client still sending
+// one is tolerated — see "still accepts a battle carrying a legacy code field".
 const baseBattle = (over: Record<string, unknown> = {}) => ({
-  code: 'ABC346',
   exercise: 'pushups',
   durationSecs: 60,
   status: 'waiting',
@@ -74,6 +77,14 @@ const baseBattle = (over: Record<string, unknown> = {}) => ({
   endedAt: null,
   ...over,
 });
+
+/**
+ * The payload a real client sends to create a battle. Differs from the seed
+ * fixture in one way that matters: the creator stamps its own heartbeat, which
+ * the create rule now requires so matchmaking can see the battle immediately.
+ */
+const createPayload = (over: Record<string, unknown> = {}) =>
+  baseBattle({ player1HeartbeatAt: serverTimestamp(), ...over });
 
 /** Seed a doc bypassing rules. */
 async function seed(data: Record<string, unknown>) {
@@ -99,38 +110,169 @@ async function seedLive(agoSecs: number, over: Record<string, unknown> = {}) {
 }
 
 describe('battle creation', () => {
-  it('lets a signed-in user create a battle as player1', async () => {
-    await assertSucceeds(setDoc(doc(dbOf(P1), 'battles', BID), baseBattle()));
+  it('creates a battle with no code field', async () => {
+    await assertSucceeds(setDoc(doc(dbOf(P1), 'battles', BID), createPayload()));
+  });
+
+  it('still accepts a battle carrying a legacy code field', async () => {
+    // hasAll, not hasOnly: a client cached from before the code removal must
+    // not be broken by the deploy.
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'battles', BID), createPayload({ code: 'ABC346' })),
+    );
   });
 
   it('rejects creating a battle owned by someone else', async () => {
-    await assertFails(setDoc(doc(dbOf(P2), 'battles', BID), baseBattle()));
+    await assertFails(setDoc(doc(dbOf(P2), 'battles', BID), createPayload()));
   });
 
   it('rejects a battle that starts with a non-zero score', async () => {
     await assertFails(
-      setDoc(doc(dbOf(P1), 'battles', BID), baseBattle({ player1Score: 50 })),
+      setDoc(doc(dbOf(P1), 'battles', BID), createPayload({ player1Score: 50 })),
     );
   });
 
   it('rejects a battle created already live', async () => {
     await assertFails(
-      setDoc(doc(dbOf(P1), 'battles', BID), baseBattle({ status: 'live' })),
+      setDoc(doc(dbOf(P1), 'battles', BID), createPayload({ status: 'live' })),
+    );
+  });
+
+  it('rejects a create missing a required field', async () => {
+    const { player1Meta: _omitted, ...withoutMeta } = createPayload() as Record<
+      string,
+      unknown
+    >;
+    await assertFails(setDoc(doc(dbOf(P1), 'battles', BID), withoutMeta));
+  });
+
+  it('requires the creator to stamp its own heartbeat', async () => {
+    // Matchmaking filters candidates on heartbeat freshness, so a battle
+    // created with a null heartbeat would be invisible to every searcher.
+    await assertFails(
+      setDoc(
+        doc(dbOf(P1), 'battles', BID),
+        createPayload({ player1HeartbeatAt: null }),
+      ),
+    );
+  });
+
+  it('rejects a forged (non-server) creation heartbeat', async () => {
+    await assertFails(
+      setDoc(
+        doc(dbOf(P1), 'battles', BID),
+        createPayload({
+          player1HeartbeatAt: Timestamp.fromMillis(Date.now() + 600_000),
+        }),
+      ),
+    );
+  });
+
+  it("rejects a creator stamping the opponent's heartbeat", async () => {
+    await assertFails(
+      setDoc(
+        doc(dbOf(P1), 'battles', BID),
+        createPayload({ player2HeartbeatAt: serverTimestamp() }),
+      ),
     );
   });
 
   it('rejects an unauthenticated create', async () => {
     const anon = env.unauthenticatedContext().firestore() as unknown as Firestore;
-    await assertFails(setDoc(doc(anon, 'battles', BID), baseBattle()));
+    await assertFails(setDoc(doc(anon, 'battles', BID), createPayload()));
   });
 });
 
-describe('joining', () => {
-  beforeEach(() => seed(baseBattle({ createdAt: Timestamp.now() })));
+describe('matchmaking join', () => {
+  beforeEach(() =>
+    seed(
+      baseBattle({
+        createdAt: Timestamp.now(),
+        player1HeartbeatAt: Timestamp.now(),
+      }),
+    ),
+  );
+
+  /** Exactly what matchmaking's claim transaction writes. */
+  const claim = (uid: string) => ({
+    player2: uid,
+    players: [P1, uid],
+    status: 'ready',
+    player2HeartbeatAt: serverTimestamp(),
+  });
 
   it('lets a second player join an open battle', async () => {
     await assertSucceeds(
       updateDoc(doc(dbOf(P2), 'battles', BID), {
+        player2: P2,
+        players: [P1, P2],
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('accepts the claim write matchmaking actually sends', async () => {
+    // If onlyTouches did not cover player2HeartbeatAt the whole client flow
+    // would be denied at runtime and nothing else here would notice.
+    await assertSucceeds(updateDoc(doc(dbOf(P2), 'battles', BID), claim(P2)));
+  });
+
+  it('rejects a claim on your own battle', async () => {
+    await assertFails(updateDoc(doc(dbOf(P1), 'battles', BID), claim(P1)));
+  });
+
+  it("rejects a joiner stamping the creator's heartbeat", async () => {
+    await assertFails(
+      updateDoc(doc(dbOf(P2), 'battles', BID), {
+        ...claim(P2),
+        player1HeartbeatAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rejects a joiner arriving pre-readied', async () => {
+    await assertFails(
+      updateDoc(doc(dbOf(P2), 'battles', BID), {
+        ...claim(P2),
+        player2Ready: true,
+      }),
+    );
+  });
+
+  it('rejects a players array inconsistent with the slots', async () => {
+    await assertFails(
+      updateDoc(doc(dbOf(P2), 'battles', BID), {
+        player2: P2,
+        players: [P2, P1], // wrong order
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('rejects joining a cancelled battle', async () => {
+    // Matchmaking cancels its own orphan in phase B; a racing scanner may
+    // still hold a stale snapshot of that document.
+    await seed(
+      baseBattle({ status: 'cancelled', createdAt: Timestamp.now() }),
+    );
+    await assertFails(updateDoc(doc(dbOf(P2), 'battles', BID), claim(P2)));
+  });
+
+  it('rejects joining a live battle', async () => {
+    await seed(
+      baseBattle({
+        status: 'live',
+        createdAt: Timestamp.now(),
+        startedAt: Timestamp.now(),
+      }),
+    );
+    await assertFails(updateDoc(doc(dbOf(P2), 'battles', BID), claim(P2)));
+  });
+
+  it('rejects an unauthenticated join', async () => {
+    const anon = env.unauthenticatedContext().firestore() as unknown as Firestore;
+    await assertFails(
+      updateDoc(doc(anon, 'battles', BID), {
         player2: P2,
         players: [P1, P2],
         status: 'ready',
@@ -172,6 +314,85 @@ describe('joining', () => {
         player2: P3,
         players: [P1, P3],
         status: 'ready',
+      }),
+    );
+  });
+});
+
+describe('heartbeats and reaping — the matchmaking pool', () => {
+  const waiting = (over: Record<string, unknown> = {}) =>
+    baseBattle({
+      createdAt: Timestamp.now(),
+      player1HeartbeatAt: Timestamp.now(),
+      ...over,
+    });
+
+  it('lets player1 keep a waiting battle fresh', async () => {
+    // This is what keeps a battle in the candidate pool. If a rules edit ever
+    // narrows validHeartbeat's status list, matchmaking goes dark.
+    await seed(waiting());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player1HeartbeatAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rejects a stranger heartbeating a waiting battle', async () => {
+    // Otherwise a third party could keep a dead battle looking alive forever.
+    await seed(waiting());
+    await assertFails(
+      updateDoc(doc(dbOf(P3), 'battles', BID), {
+        player1HeartbeatAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rejects a forged heartbeat timestamp', async () => {
+    // Freshness is a server-clock property; a client that can forge it can pin
+    // a zombie battle at the top of the pool.
+    await seed(waiting());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player1HeartbeatAt: Timestamp.fromMillis(Date.now() + 600_000),
+      }),
+    );
+  });
+
+  it('lets the creator cancel their own waiting battle immediately', async () => {
+    // Matchmaking's phase-B orphan cleanup depends on this.
+    await seed(waiting());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        status: 'cancelled',
+        endReason: 'abandoned',
+        endedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('lets anyone reap a battle abandoned for over an hour', async () => {
+    await seed(
+      waiting({ createdAt: Timestamp.fromMillis(Date.now() - 3_700_000) }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P3), 'battles', BID), {
+        status: 'cancelled',
+        endReason: 'abandoned',
+        endedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('REJECTS a stranger reaping a fresh waiting battle', async () => {
+    // Stops the opportunistic reaper being weaponised into a denial of
+    // service that empties the matchmaking pool.
+    await seed(waiting());
+    await assertFails(
+      updateDoc(doc(dbOf(P3), 'battles', BID), {
+        status: 'cancelled',
+        endReason: 'abandoned',
+        endedAt: serverTimestamp(),
       }),
     );
   });
@@ -585,5 +806,95 @@ describe('user profiles', () => {
       }),
     );
     await assertFails(getDoc(doc(dbOf(P2), 'users', P1, 'clock', 'probe')));
+  });
+});
+
+describe('user profiles — the admin role', () => {
+  /**
+   * `role` is set by hand in the Firestore console, which bypasses rules
+   * entirely. The client must be able to READ it and never to WRITE it.
+   * These are the tests that keep that true.
+   */
+
+  /** Stand-in for a console write, which runs with an admin credential. */
+  const consoleSetProfile = (uid: string, data: Record<string, unknown>) =>
+    env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore() as unknown as Firestore, 'users', uid), {
+        username: 'Rocky',
+        email: 'r@example.com',
+        avatar: null,
+        createdAt: Timestamp.now(),
+        ...data,
+      });
+    });
+
+  it('REJECTS a user granting itself a role at sign-up', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'users', P1), {
+        username: 'Rocky',
+        email: 'r@example.com',
+        avatar: null,
+        createdAt: serverTimestamp(),
+        role: 'admin',
+      }),
+    );
+  });
+
+  it('REJECTS a user adding a role on update', async () => {
+    // diff().affectedKeys() reports ADDED keys, not just changed ones.
+    await consoleSetProfile(P1, {});
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), { role: 'admin' }));
+  });
+
+  it('REJECTS a user escalating an existing role', async () => {
+    await consoleSetProfile(P1, { role: 'user' });
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), { role: 'admin' }));
+  });
+
+  it('REJECTS a user deleting its own role', async () => {
+    await consoleSetProfile(P1, { role: 'admin' });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { role: deleteField() }),
+    );
+  });
+
+  it('REJECTS smuggling a role alongside a legitimate username change', async () => {
+    // The realistic attack: piggyback on a permitted write.
+    await consoleSetProfile(P1, {});
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        username: 'Rocky II',
+        role: 'admin',
+      }),
+    );
+  });
+
+  it("REJECTS setting a role on somebody else's profile", async () => {
+    await consoleSetProfile(P1, {});
+    await assertFails(updateDoc(doc(dbOf(P2), 'users', P1), { role: 'admin' }));
+  });
+
+  it('still allows a normal profile update on an account that HAS a role', async () => {
+    // Without this, the negative tests above are satisfied by a rule that
+    // simply froze every admin profile — a very different bug.
+    await consoleSetProfile(P1, { role: 'admin' });
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        username: 'Rocky II',
+        avatar: null,
+      }),
+    );
+  });
+
+  it('lets the client read a console-set role', async () => {
+    // The whole /admin gate depends on this being readable.
+    await consoleSetProfile(P1, { role: 'admin' });
+    const snap = await getDoc(doc(dbOf(P1), 'users', P1));
+    expect(snap.data()?.role).toBe('admin');
+  });
+
+  it('lets a signed-in user read another profile that has a role', async () => {
+    await consoleSetProfile(P1, { role: 'admin' });
+    await assertSucceeds(getDoc(doc(dbOf(P2), 'users', P1)));
   });
 });

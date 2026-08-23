@@ -30,11 +30,16 @@ service cloud.firestore {
 
     match /users/{userId} {
       // Profiles are readable by any signed-in user so a battle can show the
-      // opponent's name and avatar.
+      // opponent's name and avatar. This is also how the client learns its own
+      // `role`: readable here, writable ONLY from the Firestore console, which
+      // bypasses rules entirely. There is deliberately no path below that lets
+      // a client write `role` — see the hasOnly() clauses.
       allow read: if signedIn();
 
       allow create: if signedIn()
                     && request.auth.uid == userId
+                    // hasOnly() omits 'role': a client cannot mint itself an
+                    // admin profile at sign-up. Do not add it to this list.
                     && request.resource.data.keys().hasOnly(
                          ['username', 'email', 'avatar', 'createdAt'])
                     && request.resource.data.username is string
@@ -46,10 +51,19 @@ service cloud.firestore {
       // wins/losses counters: a client cannot be trusted to increment its own
       // record, and without a server we cannot verify one. Aggregates are
       // computed by querying finished battles instead.
+      //
+      // `role` is likewise absent from affectedKeys(): diff() reports ADDED and
+      // REMOVED keys as well as changed ones, so this single clause already
+      // blocks "grant myself admin", "escalate my role" and "drop my role".
+      // The explicit role clause below is redundant today, but it turns a
+      // careless future widening of the hasOnly() list (adding, say, a `bio`
+      // field) into a test failure rather than silent privilege escalation.
       allow update: if signedIn()
                     && request.auth.uid == userId
                     && request.resource.data.diff(resource.data)
                          .affectedKeys().hasOnly(['username', 'avatar'])
+                    && !request.resource.data.diff(resource.data)
+                         .affectedKeys().hasAny(['role'])
                     && request.resource.data.username is string
                     && request.resource.data.username.size() >= 2
                     && request.resource.data.username.size() <= 24;
@@ -110,9 +124,15 @@ service cloud.firestore {
 
       // ---------------- CREATE ----------------
       // The creator is always player1 and starts alone with a zeroed board.
+      //
+      // There is no share code: entry is random matchmaking, which addresses
+      // battles by document id, so a guessable 6-char handle would only be an
+      // enumeration surface with no user-facing purpose. hasAll (not hasOnly)
+      // means a stale cached client still sending `code` is not broken by this
+      // deploy.
       allow create: if signedIn()
         && n().keys().hasAll([
-             'code', 'exercise', 'durationSecs', 'status',
+             'exercise', 'durationSecs', 'status',
              'player1', 'player2', 'players',
              'player1Ready', 'player2Ready',
              'player1Score', 'player2Score',
@@ -125,7 +145,12 @@ service cloud.firestore {
         && n().player2 == null
         && n().players == [request.auth.uid]
         && n().status == 'waiting'
-        && n().code is string && n().code.size() == 6
+        // The creator may stamp its OWN heartbeat here, and must: matchmaking
+        // filters candidates on heartbeat freshness, so a battle created with
+        // a null heartbeat is invisible to every other searcher until the
+        // battle screen mounts. It has no business stamping the opponent's.
+        && n().player1HeartbeatAt == request.time
+        && n().player2HeartbeatAt == null
         && n().exercise is string
         && n().durationSecs is int
         && n().durationSecs > 0 && n().durationSecs <= 600
@@ -158,6 +183,7 @@ service cloud.firestore {
       function validReady() {
         return st() in ['waiting', 'ready']
           && d().startedAt == null
+          && heartbeatsHonest()
           && (
                (isP1() && onlyTouches(['player1Ready', 'player1HeartbeatAt'])
                        && n().player1Ready is bool)
@@ -179,6 +205,7 @@ service cloud.firestore {
           && d().player1Ready == true && d().player2Ready == true
           && n().status == 'live'
           && n().startedAt == request.time
+          && heartbeatsHonest()
           && onlyTouches(['status', 'startedAt',
                           'player1HeartbeatAt', 'player2HeartbeatAt'])
           && ( isP1() || (isP2() && p1Stale()) );
@@ -226,6 +253,20 @@ service cloud.firestore {
       }
 
       // ---------------- HEARTBEAT ----------------
+      // A heartbeat may only ever carry the server's own clock. This is
+      // asserted on EVERY path that is allowed to touch the field, not just
+      // validHeartbeat(): matchmaking ranks candidates by heartbeat freshness,
+      // so a client able to forge one could pin a dead battle at the top of
+      // the pool forever.
+      function hbUntouchedOrServerStamped(field) {
+        return !(field in n().diff(d()).affectedKeys())
+            || n()[field] == request.time;
+      }
+      function heartbeatsHonest() {
+        return hbUntouchedOrServerStamped('player1HeartbeatAt')
+            && hbUntouchedOrServerStamped('player2HeartbeatAt');
+      }
+
       function validHeartbeat() {
         return st() in ['waiting', 'ready', 'live']
           && (

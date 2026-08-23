@@ -27,7 +27,6 @@ export interface ScoreMeta {
 }
 
 export interface BattleDoc {
-  code: string;
   exercise: string;          // key into the exercise registry
   durationSecs: number;
 
@@ -66,6 +65,14 @@ export interface UserDoc {
   email: string;
   avatar: string | null;
   createdAt: Timestamp | null;
+  /**
+   * Set BY HAND in the Firestore console; the security rules forbid every
+   * client write path. Absent on normal accounts. Because there are no Cloud
+   * Functions there are no custom claims, so this can never reach
+   * request.auth.token and no rule can act on it — it gates a dev-only UI and
+   * nothing more. See src/app/admin/page.tsx.
+   */
+  role?: 'admin';
 }
 
 export type UserWithId = UserDoc & { id: string };

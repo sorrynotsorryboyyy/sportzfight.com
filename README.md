@@ -3,8 +3,8 @@
 Défis sportifs en **1vs1**. V1 : **un max de pompes en 60 secondes**, comptées
 automatiquement par la caméra, directement dans le navigateur.
 
-> Inscription → Créer un battle → Partager le code → L'adversaire rejoint →
-> Caméra → 3·2·1·GO → 60 secondes → Comptage → Résultat → Victoire
+> Connexion Google → Rechercher un battle → Matchmaking aléatoire → Caméra →
+> 3·2·1·GO → 60 secondes → Comptage → Résultat → Victoire
 
 ## Stack
 
@@ -64,10 +64,11 @@ main : `npm run setup:mediapipe`.
 ## Tests
 
 ```bash
-npm run test        # logique pure : machine à états, détecteur, score sync (53)
-npm run test:rules  # règles de sécurité contre l'émulateur (40)
+npm run test        # logique pure : machine à états, détecteur, score sync (56)
+npm run test:rules  # règles de sécurité contre l'émulateur (68)
+npm run test:mm     # courses de matchmaking, 2 et 4 joueurs simultanés (5)
 npm run test:e2e    # parcours complet, vraie bataille de 60 s (9)
-npm run test:all    # tout (102), émulateurs lancés automatiquement
+npm run test:all    # tout (139), émulateurs lancés automatiquement
 npm run lint && npm run typecheck
 ```
 
@@ -92,6 +93,10 @@ Sans serveur, ce sont les **Security Rules** qui arbitrent
 - **Un troisième joueur ne peut pas entrer** : la jointure est un
   compare-and-swap évalué au moment du commit, donc deux arrivants simultanés
   sont sérialisés et le second est rejeté.
+- **Les heartbeats ne peuvent pas être falsifiés** : le matchmaking classe les
+  battles par fraîcheur, donc un client capable d'écrire une date arbitraire
+  pourrait maintenir un battle mort en haut de la file. Chaque chemin
+  d'écriture impose `== request.time`.
 
 ### Deux joueurs, une seule horloge
 
@@ -134,16 +139,46 @@ visibilité avec quelques images de tolérance.
 **La vidéo ne quitte jamais l'appareil** : seul le compteur est écrit dans
 Firestore, au maximum une fois toutes les 1,5 s (jamais à la fréquence d'image).
 
-### Repli manuel
+La caméra est **obligatoire** : sans elle il n'y a pas de comptage vérifiable,
+donc pas de battle. `ManualDetector` reste dans le code comme point d'extension
+de l'interface, mais n'est plus atteignable depuis l'UI.
 
-Caméra refusée, indisponible, ou simple préférence : le mode manuel implémente
-la **même interface** `ExerciseDetector`, donc tout le reste fonctionne à
-l'identique. Un correctif `+1/−1` est disponible en mode caméra.
+### `/admin` — banc de réglage
 
-Comme les scores doivent être monotones côté serveur, un `−1` n'ajuste que le
-compteur **local** ; la synchro n'envoie jamais qu'un maximum courant.
+Page protégée par `users/{uid}.role === 'admin'`, à mettre **à la main dans la
+console Firestore**. Elle affiche en direct ce que le détecteur mesure (angle
+du coude, inclinaison, écart de bassin, visibilité) et des curseurs sur les
+seuils, pour les régler face à une vraie caméra.
+
+⚠️ **Ce n'est pas une frontière de sécurité.** Sans Cloud Functions il n'y a pas
+de custom claims : `role` n'atteint jamais `request.auth.token` et **aucune
+règle ne peut le voir**. La redirection est côté client et contournable. La
+page ne contient donc que ce qu'un utilisateur connecté a déjà le droit de
+faire — aucune modification de score, aucune suppression.
 
 ---
+
+### Matchmaking
+
+Une seule porte d'entrée : **Rechercher un battle**. Pas de code à partager.
+
+Firestore n'a pas de « trouver et réserver » atomique entre documents, mais la
+règle `validJoin` en est un au niveau d'un document. L'algorithme
+([`matchmaking.ts`](src/lib/firebase/matchmaking.ts)) :
+
+1. chercher un battle en attente et tenter de le réserver ;
+2. sinon en créer un, puis **rechercher à nouveau** — c'est ce qui évite que
+   deux personnes cliquant en même temps attendent chacune dans leur coin ;
+3. sinon attendre d'être rejoint.
+
+L'étape 2 crée un risque : A et B pourraient se réserver mutuellement. Il est
+levé par un départage sur l'id du document — on ne réserve qu'un candidat dont
+l'id est inférieur au sien. Les ids sont aléatoires, donc les deux côtés
+tombent d'accord sans se parler.
+
+Les battles abandonnés sortent de la file par la fraîcheur du heartbeat (15 s),
+et chaque recherche recycle au passage ceux qui traînent depuis plus d'une
+heure — le ramasse-miettes qu'on ne peut pas planifier sans Cloud Functions.
 
 ## Ajouter un exercice
 

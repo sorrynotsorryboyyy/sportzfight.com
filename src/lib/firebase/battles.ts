@@ -3,6 +3,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -15,8 +16,8 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './client';
-import { generateCode } from '@/lib/utils/code';
 import { DEFAULT_DURATION_SECS } from '@/lib/battle/constants';
+import { DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 import type {
   BattleDoc,
   BattleWithId,
@@ -50,72 +51,67 @@ export class BattleError extends Error {
 const battlesCol = () => collection(db(), 'battles');
 export const battleRef = (id: string) => doc(db(), 'battles', id);
 
-/** Create a battle with a unique code, retrying on the (rare) collision. */
+/**
+ * Create a battle with this user as player1, waiting for an opponent.
+ *
+ * The creator stamps its own heartbeat here rather than waiting for the battle
+ * screen to mount: matchmaking ranks candidates by heartbeat freshness, so a
+ * battle created with a null heartbeat would be invisible to every other
+ * searcher for the few hundred ms until the subscription resolves. The rules
+ * require this field to equal request.time.
+ */
 export async function createBattle(
   uid: string,
-  exercise = 'pushups',
+  exercise = DEFAULT_EXERCISE,
   durationSecs = DEFAULT_DURATION_SECS,
-): Promise<{ id: string; code: string }> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = generateCode();
-    const existing = await getDocs(
-      query(battlesCol(), where('code', '==', code), limit(1)),
-    );
-    if (!existing.empty) continue;
+): Promise<string> {
+  const ref = doc(battlesCol());
+  const { setDoc } = await import('firebase/firestore');
 
-    const ref = doc(battlesCol());
-    const payload: Record<string, unknown> = {
-      code,
-      exercise,
-      durationSecs,
-      status: 'waiting',
-      player1: uid,
-      player2: null,
-      players: [uid],
-      player1Ready: false,
-      player2Ready: false,
-      player1Score: 0,
-      player2Score: 0,
-      player1Final: false,
-      player2Final: false,
-      player1Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
-      player2Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
-      player1HeartbeatAt: null,
-      player2HeartbeatAt: null,
-      winner: null,
-      endReason: null,
-      createdAt: serverTimestamp(),
-      startedAt: null,
-      endedAt: null,
-    };
-    const { setDoc } = await import('firebase/firestore');
-    await setDoc(ref, payload);
-    return { id: ref.id, code };
-  }
-  throw new BattleError('denied', 'Impossible de générer un code unique. Réessaie.');
+  await setDoc(ref, {
+    exercise,
+    durationSecs,
+    status: 'waiting',
+    player1: uid,
+    player2: null,
+    players: [uid],
+    player1Ready: false,
+    player2Ready: false,
+    player1Score: 0,
+    player2Score: 0,
+    player1Final: false,
+    player2Final: false,
+    player1Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
+    player2Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
+    player1HeartbeatAt: serverTimestamp(),
+    player2HeartbeatAt: null,
+    winner: null,
+    endReason: null,
+    createdAt: serverTimestamp(),
+    startedAt: null,
+    endedAt: null,
+  });
+
+  return ref.id;
 }
 
-/** Look up an open battle by its share code. */
-export async function findBattleByCode(code: string): Promise<BattleWithId | null> {
-  const snap = await getDocs(query(battlesCol(), where('code', '==', code), limit(1)));
-  if (snap.empty) return null;
-  const d = snap.docs[0];
-  return { id: d.id, ...(d.data() as BattleDoc) };
+export async function getBattle(id: string): Promise<BattleWithId | null> {
+  const snap = await getDoc(battleRef(id));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as BattleDoc) };
 }
 
 /**
- * Join a battle as player2.
+ * Claim the second slot of a specific battle.
  *
- * The security rule is what actually prevents a third player (it is a
- * compare-and-swap against the committed document). This transaction exists so
- * the user gets "battle complet" instead of an opaque permission error, and
- * because transaction reads always hit the server rather than the local cache.
+ * The security rule is what actually prevents a third player: it is a
+ * compare-and-swap evaluated against the committed document inside the commit,
+ * so of N simultaneous claimants exactly one wins. This transaction exists to
+ * read from the server (transaction reads bypass the local cache) and to turn
+ * a lost race into a typed error instead of a raw permission failure.
  */
-export async function joinBattle(uid: string, code: string): Promise<string> {
-  const found = await findBattleByCode(code);
-  if (!found) throw new BattleError('not-found', 'Aucun battle avec ce code.');
-
-  const ref = battleRef(found.id);
+export async function joinBattleById(uid: string, id: string): Promise<void> {
+  const ref = battleRef(id);
 
   await runTransaction(db(), async (tx) => {
     const snap = await tx.get(ref);
@@ -135,10 +131,9 @@ export async function joinBattle(uid: string, code: string): Promise<string> {
       player2: uid,
       players: [b.player1, uid],
       status: 'ready',
+      player2HeartbeatAt: serverTimestamp(),
     });
   });
-
-  return found.id;
 }
 
 export async function setReady(id: string, slot: PlayerSlot, ready: boolean) {

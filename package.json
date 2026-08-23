@@ -15,7 +15,8 @@
     "test:all": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run\"",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
     "setup:mediapipe": "node scripts/setup-mediapipe.mjs",
-    "postinstall": "node scripts/setup-mediapipe.mjs"
+    "postinstall": "node scripts/setup-mediapipe.mjs",
+    "test:mm": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run tests/matchmaking.test.ts\""
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",

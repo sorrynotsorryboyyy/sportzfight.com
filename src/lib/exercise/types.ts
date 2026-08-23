@@ -22,7 +22,19 @@ export interface DetectorResult {
   /** Total valid reps this session. Monotonically non-decreasing. */
   count: number;
   phase: RepPhase;
-  /** Problems with the CURRENT frame, ordered most-important first. */
+  /**
+   * PERSISTENT posture problems with the current frame: the body is not in a
+   * position where reps can be counted. These drive the red/green tracking
+   * indicator, because they describe a state the athlete must fix.
+   */
+  postureIssues: FormIssue[];
+  /**
+   * TRANSIENT notes about the rep that just ended (too shallow, too fast).
+   * These fire on a single frame and must NOT colour the tracking indicator,
+   * or a perfectly good plank flashes a warning on every rep.
+   */
+  repNotes: FormIssue[];
+  /** Everything above, for callers that just want a flat list. */
   formFeedback: FormIssue[];
   /** 0..1 — how confident we are the body is being tracked properly. */
   confidence: number;
@@ -30,6 +42,18 @@ export interface DetectorResult {
   repProgress: number;
   /** True on the frame a rep was credited, so the UI can pop/vibrate. */
   justCounted: boolean;
+  /**
+   * Raw measured values for the current frame. Present only so /admin can show
+   * what the detector actually sees while tuning thresholds against a real
+   * camera; nothing in the battle UI should depend on it.
+   */
+  debug?: {
+    elbowAngle: number;
+    inclination: number;
+    hipDeviation: number;
+    meanVisibility: number;
+    rangeOfMotion: number;
+  };
 }
 
 /**

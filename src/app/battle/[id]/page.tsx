@@ -11,11 +11,10 @@ import { SetupNotice } from '@/components/ui/SetupNotice';
 import { Spinner } from '@/components/ui/Spinner';
 import { BattleTimer } from '@/components/battle/BattleTimer';
 import { Countdown } from '@/components/battle/Countdown';
+import { OpponentPanel } from '@/components/battle/OpponentPanel';
 import { PlayerCard } from '@/components/battle/PlayerCard';
 import { ResultScreen } from '@/components/battle/ResultScreen';
-import { ShareCode } from '@/components/battle/ShareCode';
 import { CameraStage } from '@/components/camera/CameraStage';
-import { ManualPad } from '@/components/camera/ManualPad';
 
 import { db, isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
@@ -26,15 +25,18 @@ import { useBattleClock } from '@/lib/battle/useBattleClock';
 import { useBattleDriver } from '@/lib/battle/useBattleDriver';
 import { isStale, readyOf, slotOf } from '@/lib/battle/machine';
 import { getExercise } from '@/lib/exercise/registry';
-import {
-  useExerciseSession,
-  type CountingMode,
-} from '@/lib/exercise/runtime/useExerciseSession';
+import { useExerciseSession } from '@/lib/exercise/runtime/useExerciseSession';
+import { FORM_MESSAGES } from '@/lib/exercise/types';
 import type { PlayerSlot, ScoreMeta, UserDoc } from '@/lib/battle/types';
 
-/** Resolve display names for both players, falling back to a slot label. */
-function usePlayerNames(p1: string | null, p2: string | null) {
-  const [names, setNames] = useState<Record<string, string>>({});
+interface Profile {
+  username: string;
+  avatar: string | null;
+}
+
+/** Resolve display name and avatar for both players. */
+function useProfiles(p1: string | null, p2: string | null) {
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
 
   useEffect(() => {
     const ids = [p1, p2].filter((x): x is string => !!x);
@@ -44,14 +46,18 @@ function usePlayerNames(p1: string | null, p2: string | null) {
       ids.map(async (id) => {
         try {
           const snap = await getDoc(doc(db(), 'users', id));
-          return [id, (snap.data() as UserDoc | undefined)?.username ?? ''] as const;
+          const d = snap.data() as UserDoc | undefined;
+          return [
+            id,
+            { username: d?.username ?? '', avatar: d?.avatar ?? null },
+          ] as const;
         } catch {
-          return [id, ''] as const;
+          return [id, { username: '', avatar: null }] as const;
         }
       }),
     ).then((pairs) => {
       if (!alive) return;
-      setNames(Object.fromEntries(pairs.filter(([, n]) => n)));
+      setProfiles(Object.fromEntries(pairs));
     });
 
     return () => {
@@ -59,7 +65,7 @@ function usePlayerNames(p1: string | null, p2: string | null) {
     };
   }, [p1, p2]);
 
-  return names;
+  return profiles;
 }
 
 export default function BattlePage({
@@ -76,10 +82,8 @@ export default function BattlePage({
   useBattleDriver(battle, uid, view.phase);
 
   const slot: PlayerSlot | null = battle && uid ? slotOf(battle, uid) : null;
-  const names = usePlayerNames(battle?.player1 ?? null, battle?.player2 ?? null);
+  const profiles = useProfiles(battle?.player1 ?? null, battle?.player2 ?? null);
 
-  const [mode, setMode] = useState<CountingMode>('camera');
-  const [armed, setArmed] = useState(false);
   const finalizedRef = useRef(false);
 
   const exercise = getExercise(battle?.exercise ?? 'pushups');
@@ -90,9 +94,10 @@ export default function BattlePage({
     [id],
   );
 
+  // The camera is mandatory in V1, so there is no counting mode to choose.
   const session = useExerciseSession({
     exerciseId: battle?.exercise ?? 'pushups',
-    mode,
+    mode: 'camera',
     slot,
     active: view.phase === 'active',
     write,
@@ -100,13 +105,17 @@ export default function BattlePage({
 
   const { start: startCamera, stop: stopCamera, finalize } = session;
 
-  // Start the camera once the athlete opts in, and tear it down when the
-  // battle is over so the indicator light does not stay on.
+  const isSpectator = slot === null;
+  const finished = view.phase === 'finished' || battle?.status === 'finished';
+
+  // Start the camera as soon as a player lands on a live battle — there is no
+  // opt-in step, because counting cannot happen without it.
   useEffect(() => {
-    if (!armed || mode !== 'camera') return;
+    if (isSpectator || finished) return;
+    if (battle?.status === 'cancelled') return;
     void startCamera();
     return () => stopCamera();
-  }, [armed, mode, startCamera, stopCamera]);
+  }, [isSpectator, finished, battle?.status, startCamera, stopCamera]);
 
   // Flush the final count exactly once, the moment the effort window closes.
   useEffect(() => {
@@ -116,12 +125,11 @@ export default function BattlePage({
     void finalize().finally(() => stopCamera());
   }, [view.phase, slot, finalize, stopCamera]);
 
+  const opponentSlot: PlayerSlot = slot === 1 ? 2 : 1;
   const opponentConnected = useMemo(() => {
-    if (!battle) return true;
-    const other: PlayerSlot = slot === 1 ? 2 : 1;
-    if (!battle.player2) return false;
-    return !isStale(battle, other, serverNow());
-  }, [battle, slot]);
+    if (!battle?.player2) return false;
+    return !isStale(battle, opponentSlot, serverNow());
+  }, [battle, opponentSlot]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
   if (authLoading || loading) {
@@ -139,9 +147,7 @@ export default function BattlePage({
         <h1 className="text-3xl font-black uppercase tracking-tighter">
           Battle introuvable
         </h1>
-        <p className="text-ink-400">
-          Ce battle n’existe pas ou a été supprimé.
-        </p>
+        <p className="text-ink-400">Ce battle n’existe pas ou a été supprimé.</p>
         <Link href="/">
           <Button>Retour à l’accueil</Button>
         </Link>
@@ -149,16 +155,19 @@ export default function BattlePage({
     );
   }
 
-  const p1Name = names[battle.player1] || 'Joueur 1';
-  const p2Name = battle.player2
-    ? names[battle.player2] || 'Joueur 2'
-    : 'En attente…';
+  const p1 = profiles[battle.player1];
+  const p2 = battle.player2 ? profiles[battle.player2] : undefined;
+  const p1Name = p1?.username || 'Joueur 1';
+  const p2Name = battle.player2 ? p2?.username || 'Joueur 2' : 'En attente…';
+
+  const meName = slot === 2 ? p2Name : p1Name;
+  const oppName = slot === 2 ? p1Name : p2Name;
+  const oppAvatar = (slot === 2 ? p1?.avatar : p2?.avatar) ?? null;
 
   const myReady = slot ? readyOf(battle, slot) : false;
-  const isSpectator = slot === null;
 
   // ---------- finished ----------
-  if (view.phase === 'finished' || battle.status === 'finished') {
+  if (finished) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col p-6">
         <header className="py-2">
@@ -178,141 +187,189 @@ export default function BattlePage({
         <h1 className="text-3xl font-black uppercase tracking-tighter">
           Battle annulé
         </h1>
-        <Link href="/battle/create">
-          <Button>Créer un nouveau battle</Button>
+        <Link href="/matchmaking">
+          <Button>Chercher un autre adversaire</Button>
         </Link>
       </main>
     );
   }
 
   // ---------- live: countdown or effort ----------
-  const inPlay = view.phase === 'countdown' || view.phase === 'active' || view.phase === 'ending';
+  const inPlay =
+    view.phase === 'countdown' || view.phase === 'active' || view.phase === 'ending';
 
   if (inPlay) {
-    const myScore = slot === 1 ? battle.player1Score : battle.player2Score;
-    const localScore = slot ? Math.max(session.count, myScore) : 0;
+    const myStored = slot === 1 ? battle.player1Score : battle.player2Score;
+    const myScore = slot ? Math.max(session.count, myStored) : 0;
+    const oppScore =
+      slot === 2 ? battle.player1Score : battle.player2Score;
+    const repNote = session.result?.repNotes?.[0];
 
+    if (isSpectator) {
+      return (
+        <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
+          {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
+          <div className="flex items-stretch gap-3">
+            <PlayerCard
+              name={p1Name}
+              score={battle.player1Score}
+              isSelf={false}
+              slot={1}
+              compact
+              connected={!isStale(battle, 1, serverNow())}
+            />
+            <PlayerCard
+              name={p2Name}
+              score={battle.player2Score}
+              isSelf={false}
+              slot={2}
+              compact
+              connected={!isStale(battle, 2, serverNow())}
+            />
+          </div>
+          <BattleTimer
+            secondsLeft={view.secondsLeft}
+            progress={view.progress}
+            approximate={view.clockDegraded}
+          />
+          <Card className="text-center text-sm text-ink-400">
+            Tu regardes ce battle en spectateur.
+          </Card>
+        </main>
+      );
+    }
+
+    // Split screen. Stacked in portrait (the natural phone grip), side by side
+    // once there is width for it.
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 p-4">
+      <main className="relative flex h-dvh flex-col overflow-hidden sm:flex-row">
         {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
 
-        <div className="flex items-stretch gap-3">
-          <PlayerCard
-            name={p1Name}
-            score={slot === 1 ? localScore : battle.player1Score}
-            isSelf={slot === 1}
-            slot={1}
-            compact
-            connected={slot === 1 ? true : !isStale(battle, 1, serverNow())}
+        {/* --- your half: the live camera --- */}
+        <section className="relative min-h-0 flex-1">
+          <CameraStage
+            variant="fullbleed"
+            videoRef={session.videoRef}
+            landmarks={session.landmarks}
+            result={session.result}
+            status={session.engineStatus}
+            error={session.error}
+            onRetry={() => void startCamera()}
           />
-          <div className="flex items-center">
+
+          {/* Your score, over the video. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-ink-950/90 to-transparent p-4 pt-12">
+            <div>
+              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+                Toi · {meName}
+              </p>
+              <span className="tnum block text-6xl font-black leading-none text-volt-500 sm:text-7xl">
+                {myScore}
+              </span>
+            </div>
+            {repNote && (
+              <span className="mb-1 rounded-full bg-gold/95 px-2.5 py-1 text-xs font-bold text-ink-950">
+                {FORM_MESSAGES[repNote]}
+              </span>
+            )}
+          </div>
+        </section>
+
+        {/* --- the timer, on the divider: it belongs to neither side --- */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">
+          <div className="scale-75 rounded-full bg-ink-950/80 p-1 backdrop-blur sm:scale-90">
             <BattleTimer
               secondsLeft={view.secondsLeft}
               progress={view.progress}
               approximate={view.clockDegraded}
             />
           </div>
-          <PlayerCard
-            name={p2Name}
-            score={slot === 2 ? localScore : battle.player2Score}
-            isSelf={slot === 2}
-            slot={2}
-            compact
-            connected={slot === 2 ? true : opponentConnected}
-          />
         </div>
 
-        {isSpectator ? (
-          <Card className="text-center text-sm text-ink-400">
-            Tu regardes ce battle en spectateur.
-          </Card>
-        ) : mode === 'camera' ? (
-          <>
-            <CameraStage
-              videoRef={session.videoRef}
-              landmarks={session.landmarks}
-              result={session.result}
-              status={session.engineStatus}
-              error={session.error}
-              onRetry={() => void startCamera()}
-              onUseManual={() => setMode('manual')}
-            />
-            <ManualPad
-              variant="correction"
-              onAdjust={session.adjust}
-              disabled={view.phase !== 'active'}
-            />
-          </>
-        ) : (
-          <ManualPad
-            variant="primary"
-            count={localScore}
-            onAdjust={session.adjust}
-            disabled={view.phase !== 'active'}
+        {/* --- opponent half --- */}
+        <section className="min-h-0 flex-1 border-t border-ink-800 sm:border-l sm:border-t-0">
+          <OpponentPanel
+            name={oppName}
+            avatar={oppAvatar}
+            score={oppScore}
+            connected={opponentConnected}
+            exerciseLabel={exercise.label}
+            waiting={!battle.player2}
           />
-        )}
+        </section>
 
         {view.phase === 'ending' && (
-          <Card className="text-center text-sm text-ink-300">
+          <div className="absolute inset-x-0 bottom-0 z-40 bg-ink-950/95 p-4 text-center text-sm text-ink-300">
             Temps écoulé — calcul du résultat…
-          </Card>
+          </div>
         )}
       </main>
     );
   }
 
-  // ---------- lobby ----------
+  // ---------- lobby: full-bleed camera with the info floating over it ----------
+  if (isSpectator) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
+        <Logo className="text-2xl" />
+        <div className="flex items-stretch gap-3">
+          <PlayerCard
+            name={p1Name}
+            score={0}
+            isSelf={false}
+            slot={1}
+            ready={battle.player1Ready}
+            connected={!isStale(battle, 1, serverNow())}
+          />
+          <PlayerCard
+            name={p2Name}
+            score={0}
+            isSelf={false}
+            slot={2}
+            ready={battle.player2Ready}
+            connected={!isStale(battle, 2, serverNow())}
+          />
+        </div>
+        <Card className="text-center text-sm text-ink-400">
+          Tu regardes ce battle en spectateur.
+        </Card>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 p-6">
-      <header className="flex items-center justify-between py-1">
-        <Link href="/">
-          <Logo className="text-xl" />
-        </Link>
-        <span className="text-xs font-bold uppercase tracking-widest text-ink-500">
-          {exercise.emoji} {exercise.label} · {battle.durationSecs}s
-        </span>
-      </header>
+    <main className="relative h-dvh overflow-hidden">
+      <CameraStage
+        variant="fullbleed"
+        videoRef={session.videoRef}
+        landmarks={session.landmarks}
+        result={session.result}
+        status={session.engineStatus}
+        error={session.error}
+        onRetry={() => void startCamera()}
+      />
 
-      {!battle.player2 ? (
-        <>
-          <div className="text-center">
-            <h1 className="text-3xl font-black uppercase tracking-tighter text-volt-500">
-              Battle créé !
-            </h1>
-            <p className="mt-2 text-ink-400">
-              Envoie ce code à ton adversaire pour qu’il te rejoigne.
-            </p>
-          </div>
-          <ShareCode code={battle.code} />
-          <div className="flex items-center justify-center gap-2 text-sm text-ink-500">
-            <span className="size-1.5 animate-pulse rounded-full bg-volt-500" />
-            En attente d’un adversaire…
-          </div>
-          {slot === 1 && (
-            <Button
-              variant="ghost"
-              onClick={() => void cancelBattle(battle.id)}
-              className="mt-auto"
-            >
-              Annuler le battle
-            </Button>
-          )}
-        </>
-      ) : (
-        <>
-          <div className="text-center">
-            <h1 className="text-3xl font-black uppercase tracking-tighter">
-              Prêts ?
-            </h1>
-            <p className="mt-2 text-ink-400">{exercise.tagline}</p>
+      {/* Everything below floats over the video. pointer-events-none on the
+          scrims so only the actual controls are clickable. */}
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+        {/* top: identity + both players */}
+        <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-10">
+          <div className="pointer-events-auto mb-3 flex items-center justify-between">
+            <Link href="/">
+              <Logo className="text-lg" />
+            </Link>
+            <span className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-400">
+              {exercise.emoji} {exercise.label} · {battle.durationSecs}s
+            </span>
           </div>
 
-          <div className="flex items-stretch gap-3">
+          <div className="flex items-stretch gap-2">
             <PlayerCard
               name={p1Name}
               score={0}
               isSelf={slot === 1}
               slot={1}
+              compact
               ready={battle.player1Ready}
               connected={!isStale(battle, 1, serverNow())}
             />
@@ -321,70 +378,35 @@ export default function BattlePage({
               score={0}
               isSelf={slot === 2}
               slot={2}
+              compact
               ready={battle.player2Ready}
-              connected={!isStale(battle, 2, serverNow())}
+              connected={
+                !!battle.player2 && !isStale(battle, 2, serverNow())
+              }
             />
           </div>
+        </div>
 
-          {isSpectator ? (
-            <Card className="text-center text-sm text-ink-400">
-              Tu regardes ce battle en spectateur.
-            </Card>
+        {/* bottom: setup hint + the ready control, in the thumb zone */}
+        <div className="bg-gradient-to-t from-ink-950/95 to-transparent p-4 pt-12">
+          {!battle.player2 ? (
+            <div className="pointer-events-auto flex flex-col gap-3">
+              <p className="text-center text-sm text-ink-300">
+                <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-volt-500 align-middle" />
+                Recherche d’un adversaire…
+              </p>
+              <p className="text-center text-xs text-ink-500">
+                {exercise.setupHint}
+              </p>
+              <Button variant="ghost" onClick={() => void cancelBattle(battle.id)}>
+                Annuler
+              </Button>
+            </div>
           ) : (
-            <>
-              <Card>
-                <p className="text-sm font-semibold text-ink-200">
-                  Mode de comptage
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => setMode('camera')}
-                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                      mode === 'camera'
-                        ? 'border-volt-500 bg-volt-500/10 text-volt-400'
-                        : 'border-ink-700 text-ink-400'
-                    }`}
-                  >
-                    📷 Caméra
-                  </button>
-                  <button
-                    onClick={() => setMode('manual')}
-                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                      mode === 'manual'
-                        ? 'border-volt-500 bg-volt-500/10 text-volt-400'
-                        : 'border-ink-700 text-ink-400'
-                    }`}
-                  >
-                    👆 Manuel
-                  </button>
-                </div>
-                <p className="mt-3 text-xs leading-relaxed text-ink-500">
-                  {mode === 'camera'
-                    ? exercise.setupHint
-                    : 'Appuie sur le bouton à chaque répétition.'}
-                </p>
-              </Card>
-
-              {mode === 'camera' && (
-                <>
-                  {!armed ? (
-                    <Button variant="secondary" onClick={() => setArmed(true)}>
-                      Activer la caméra
-                    </Button>
-                  ) : (
-                    <CameraStage
-                      videoRef={session.videoRef}
-                      landmarks={session.landmarks}
-                      result={session.result}
-                      status={session.engineStatus}
-                      error={session.error}
-                      onRetry={() => void startCamera()}
-                      onUseManual={() => setMode('manual')}
-                    />
-                  )}
-                </>
-              )}
-
+            <div className="pointer-events-auto flex flex-col gap-3">
+              <p className="text-center text-xs leading-relaxed text-ink-400">
+                {exercise.setupHint}
+              </p>
               <Button
                 size="xl"
                 variant={myReady ? 'secondary' : 'primary'}
@@ -393,16 +415,15 @@ export default function BattlePage({
               >
                 {myReady ? 'ANNULER' : 'JE SUIS PRÊT'}
               </Button>
-
               {myReady && (
                 <p className="text-center text-sm text-ink-400">
                   En attente de ton adversaire…
                 </p>
               )}
-            </>
+            </div>
           )}
-        </>
-      )}
+        </div>
+      </div>
     </main>
   );
 }

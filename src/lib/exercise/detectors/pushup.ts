@@ -51,7 +51,16 @@ export const PUSHUP_CONFIG = {
   // --- gate 4: body horizontality, shoulder->ankle vs horizontal ---
   // A seated person doing arm curls produces a perfect elbow sine wave but
   // sits near 85 degrees. This is what makes that impossible to pass.
-  MAX_INCLINATION: 35,
+  //
+  // Measured in IMAGE space, not the real world. A phone propped on the floor
+  // sees a genuinely level body well past 35 degrees once perspective
+  // foreshortening is involved, which used to paint a correct plank as
+  // "not horizontal" permanently. 55 leaves the seated case (~85) firmly
+  // rejected while tolerating a realistic camera placement.
+  MAX_INCLINATION: 55,
+  // Frames a posture fault must persist before it is reported, so a single
+  // noisy landmark cannot flash a warning mid-rep.
+  POSTURE_GRACE_FRAMES: 5,
 
   // --- timing ---
   MIN_REP_MS: 600,    // full down+up; world-record cadence is ~500ms
@@ -119,6 +128,7 @@ export class PushupDetector implements ExerciseDetector {
   private downEnteredMs = 0;
   private lastRepMs = -Infinity;
   private lowVisFrames = 0;
+  private badPostureFrames = 0;
   private justCounted = false;
 
   /** Reps credited by the camera, before any manual correction. */
@@ -143,6 +153,7 @@ export class PushupDetector implements ExerciseDetector {
     this.downEnteredMs = 0;
     this.lastRepMs = -Infinity;
     this.lowVisFrames = 0;
+    this.badPostureFrames = 0;
     this.justCounted = false;
   }
 
@@ -158,17 +169,22 @@ export class PushupDetector implements ExerciseDetector {
 
   private result(
     phase: RepPhase,
-    feedback: FormIssue[],
+    postureIssues: FormIssue[],
     confidence: number,
     repProgress: number,
+    repNotes: FormIssue[] = [],
+    debug?: DetectorResult['debug'],
   ): DetectorResult {
     const r: DetectorResult = {
       count: Math.max(0, this.total),
       phase,
-      formFeedback: feedback,
+      postureIssues,
+      repNotes,
+      formFeedback: [...postureIssues, ...repNotes],
       confidence,
       repProgress,
       justCounted: this.justCounted,
+      debug,
     };
     this.justCounted = false;
     return r;
@@ -232,12 +248,25 @@ export class PushupDetector implements ExerciseDetector {
       visibilityOf(landmarks, LM.LEFT_ANKLE),
       visibilityOf(landmarks, LM.RIGHT_ANKLE),
     );
-    const lowerMid =
-      ankleVis >= PUSHUP_CONFIG.MIN_VISIBILITY
-        ? midpoint(landmarks[LM.LEFT_ANKLE], landmarks[LM.RIGHT_ANKLE])
-        : midpoint(landmarks[LM.LEFT_HIP], landmarks[LM.RIGHT_HIP]);
+    const kneeVis = Math.min(
+      visibilityOf(landmarks, LM.LEFT_KNEE),
+      visibilityOf(landmarks, LM.RIGHT_KNEE),
+    );
+    // Falling back to the hips would make the body line END at the hip, so the
+    // hip's deviation from it is ~0 by construction and the torso check
+    // silently does nothing. Knees are the last landmark that still yields a
+    // meaningful line; below that we skip the torso check honestly.
+    const haveAnkles = ankleVis >= PUSHUP_CONFIG.MIN_VISIBILITY;
+    const haveKnees = kneeVis >= PUSHUP_CONFIG.MIN_VISIBILITY;
+    const lowerMid = haveAnkles
+      ? midpoint(landmarks[LM.LEFT_ANKLE], landmarks[LM.RIGHT_ANKLE])
+      : haveKnees
+        ? midpoint(landmarks[LM.LEFT_KNEE], landmarks[LM.RIGHT_KNEE])
+        : null;
 
-    const incline = this.inclineEma.push(inclinationDeg(shoulderMid, lowerMid));
+    const incline = lowerMid
+      ? this.inclineEma.push(inclinationDeg(shoulderMid, lowerMid))
+      : Number.NaN;
 
     // Signed hip deviation from the shoulder->ankle line, as a fraction of
     // body length. Image space puts +y downward, and the 2D cross product
@@ -245,34 +274,38 @@ export class PushupDetector implements ExerciseDetector {
     // here to give the intuitive convention: positive = sagging toward the
     // floor, negative = piked up.
     const hipMid = midpoint(landmarks[LM.LEFT_HIP], landmarks[LM.RIGHT_HIP]);
-    const hipDev = this.torsoEma.push(
-      -signedOffset(shoulderMid, lowerMid, hipMid),
-    );
+    // Only meaningful when the line extends past the hip.
+    const hipDev = haveAnkles && lowerMid
+      ? this.torsoEma.push(-signedOffset(shoulderMid, lowerMid, hipMid))
+      : Number.NaN;
 
     if (!Number.isFinite(elbow)) {
       return this.result(this.phase, ['low_visibility'], meanVis, 0);
     }
 
     // ---- form evaluation ----
-    const feedback: FormIssue[] = [];
+    // posture = persistent, blocks counting, drives the indicator colour.
+    // repNotes = transient, describes the rep that just ended.
+    const posture: FormIssue[] = [];
+    const repNotes: FormIssue[] = [];
     const horizontal =
       !Number.isFinite(incline) || incline <= PUSHUP_CONFIG.MAX_INCLINATION;
-    if (!horizontal) feedback.push('not_horizontal');
+    if (!horizontal) posture.push('not_horizontal');
 
     let torsoOk = true;
     if (Number.isFinite(hipDev)) {
       if (hipDev > PUSHUP_CONFIG.MAX_TORSO_DEVIATION) {
-        feedback.push('hips_sagging');
+        posture.push('hips_sagging');
         torsoOk = false;
       } else if (hipDev < -PUSHUP_CONFIG.MAX_TORSO_DEVIATION) {
-        feedback.push('hips_piked');
+        posture.push('hips_piked');
         torsoOk = false;
       }
     }
     // Coarse backstop: a hip angle this sharp is a collapsed pose regardless
     // of which way it bent.
     if (Number.isFinite(torsoAngle) && torsoAngle < PUSHUP_CONFIG.TORSO_MIN) {
-      if (!feedback.includes('hips_piked')) feedback.push('hips_piked');
+      if (!posture.includes('hips_piked')) posture.push('hips_piked');
       torsoOk = false;
     }
 
@@ -308,7 +341,7 @@ export class PushupDetector implements ExerciseDetector {
         } else if (elbow >= PUSHUP_CONFIG.UP_ENTER) {
           // Came back up without reaching depth: not a rep.
           this.phase = 'up';
-          feedback.push('partial_rep');
+          repNotes.push('partial_rep');
           this.resetRepRange(elbow);
         } else if (tMs - this.descentStartMs > PUSHUP_CONFIG.MAX_REP_MS) {
           this.phase = 'idle';
@@ -320,7 +353,7 @@ export class PushupDetector implements ExerciseDetector {
           if (tMs - this.downEnteredMs < PUSHUP_CONFIG.MIN_DOWN_MS) {
             // Bounced straight off the bottom.
             this.phase = 'ascending';
-            feedback.push('too_fast');
+            repNotes.push('too_fast');
           } else {
             this.phase = 'ascending';
           }
@@ -331,7 +364,7 @@ export class PushupDetector implements ExerciseDetector {
 
       case 'ascending':
         if (elbow >= PUSHUP_CONFIG.UP_ENTER) {
-          this.tryCredit(tMs, formValid, feedback);
+          this.tryCredit(tMs, formValid, repNotes);
           this.phase = 'up';
           this.resetRepRange(elbow);
         } else if (elbow <= PUSHUP_CONFIG.DOWN_ENTER) {
@@ -360,8 +393,27 @@ export class PushupDetector implements ExerciseDetector {
             ) * 0.5
           : 0;
 
+    // Hold a posture fault for a few frames before surfacing it, so one noisy
+    // landmark cannot flash a warning during an otherwise clean rep.
+    this.badPostureFrames = posture.length ? this.badPostureFrames + 1 : 0;
+    const reportedPosture =
+      this.badPostureFrames >= PUSHUP_CONFIG.POSTURE_GRACE_FRAMES ? posture : [];
+
     const confidence = Math.min(meanVis, formValid ? 1 : 0.45);
-    return this.result(this.phase, feedback, confidence, progress);
+    return this.result(
+      this.phase,
+      reportedPosture,
+      confidence,
+      progress,
+      repNotes,
+      {
+        elbowAngle: elbow,
+        inclination: incline,
+        hipDeviation: hipDev,
+        meanVisibility: meanVis,
+        rangeOfMotion: this.repMaxAngle - this.repMinAngle,
+      },
+    );
   }
 
   private resetRepRange(elbow: number): void {
@@ -370,18 +422,18 @@ export class PushupDetector implements ExerciseDetector {
   }
 
   /** Final arbitration: credit the rep only if every gate agreed. */
-  private tryCredit(tMs: number, formValid: boolean, feedback: FormIssue[]): void {
+  private tryCredit(tMs: number, formValid: boolean, repNotes: FormIssue[]): void {
     const cycleMs = tMs - this.descentStartMs;
     const rom = this.repMaxAngle - this.repMinAngle;
 
     if (!formValid) return;
     if (tMs - this.lastRepMs < PUSHUP_CONFIG.DEBOUNCE_MS) return;
     if (cycleMs < PUSHUP_CONFIG.MIN_REP_MS) {
-      feedback.push('too_fast');
+      repNotes.push('too_fast');
       return;
     }
     if (rom < PUSHUP_CONFIG.MIN_ROM_DEG) {
-      feedback.push('partial_rep');
+      repNotes.push('partial_rep');
       return;
     }
 

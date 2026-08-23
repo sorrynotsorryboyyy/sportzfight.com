@@ -120,7 +120,7 @@ export function ResultScreen({
       </div>
 
       <div className="flex flex-col gap-3">
-        <Link href="/battle/create" className="block">
+        <Link href="/matchmaking" className="block">
           <Button size="xl">REVANCHE</Button>
         </Link>
         <Link href="/" className="block">

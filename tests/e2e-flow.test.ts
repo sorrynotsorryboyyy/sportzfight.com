@@ -102,7 +102,6 @@ describe('full battle journey', () => {
     battleId = ref.id;
 
     await setDoc(ref, {
-      code: CODE,
       exercise: 'pushups',
       durationSecs: 60,
       status: 'waiting',
@@ -117,7 +116,7 @@ describe('full battle journey', () => {
       player2Final: false,
       player1Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
       player2Meta: { autoReps: 0, manualAdjust: 0, source: 'camera' },
-      player1HeartbeatAt: null,
+      player1HeartbeatAt: serverTimestamp(),
       player2HeartbeatAt: null,
       winner: null,
       endReason: null,
@@ -132,11 +131,13 @@ describe('full battle journey', () => {
     expect(slotOf(b, p1.uid)).toBe(1);
   });
 
-  it('player 2 joins with the code', async () => {
+  it('player 2 is matched into the battle', async () => {
+    // The exact write matchmaking's claim transaction sends.
     await updateDoc(doc(p2.db, 'battles', battleId), {
       player2: p2.uid,
       players: [p1.uid, p2.uid],
       status: 'ready',
+      player2HeartbeatAt: serverTimestamp(),
     });
 
     const b = await read(p2, battleId);

@@ -12,6 +12,11 @@ import { Button } from '@/components/ui/Button';
  *
  * The video element is always mounted (even before start) so the engine has a
  * target to attach the stream to. Nothing here ever leaves the device.
+ *
+ * `fullbleed` fills its positioned parent, for the lobby and the battle split
+ * where the camera IS the screen; `framed` keeps a rounded aspect-ratio box.
+ * One component either way, so the tracking indicator and the error handling
+ * cannot drift apart between the two.
  */
 export function CameraStage({
   videoRef,
@@ -20,8 +25,9 @@ export function CameraStage({
   status,
   error,
   onRetry,
-  onUseManual,
+  variant = 'framed',
   className,
+  children,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   landmarks: Landmark[] | null;
@@ -29,18 +35,27 @@ export function CameraStage({
   status: EngineStatus;
   error: EngineError | null;
   onRetry?: () => void;
-  onUseManual?: () => void;
+  variant?: 'framed' | 'fullbleed';
   className?: string;
+  children?: React.ReactNode;
 }) {
-  const issues = result?.formFeedback ?? [];
+  // ONLY posture drives the indicator. Rep notes ("trop rapide") are transient
+  // and would otherwise flash a warning on a perfectly good rep.
+  const posture = result?.postureIssues ?? [];
   const tracked = !!landmarks;
-  const good = tracked && issues.length === 0;
+  const good = tracked && posture.length === 0;
+  const fullbleed = variant === 'fullbleed';
 
   return (
     <div
       className={cn(
-        'relative aspect-[3/4] w-full overflow-hidden rounded-2xl border bg-ink-900 sm:aspect-video',
-        good ? 'border-volt-500/60' : 'border-ink-800',
+        'relative overflow-hidden bg-ink-900',
+        fullbleed
+          ? 'size-full'
+          : cn(
+              'aspect-[3/4] w-full rounded-2xl border sm:aspect-video',
+              good ? 'border-volt-500/60' : 'border-ink-800',
+            ),
         className,
       )}
     >
@@ -54,7 +69,8 @@ export function CameraStage({
 
       <PoseOverlay landmarks={landmarks} valid={good} mirrored />
 
-      {/* Tracking state, top-left */}
+      {/* Tracking state. Kept top-left in both variants so the athlete always
+          knows where to glance. */}
       <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-ink-950/75 px-2.5 py-1 backdrop-blur">
         <span
           className={cn(
@@ -67,11 +83,10 @@ export function CameraStage({
         </span>
       </div>
 
-      {/* Form coaching, bottom. One message at a time: mid-effort nobody reads
-          a list. */}
-      {tracked && issues.length > 0 && (
+      {/* One coaching message at a time: mid-effort nobody reads a list. */}
+      {tracked && posture.length > 0 && (
         <div className="absolute inset-x-3 bottom-3 rounded-xl bg-gold/95 px-3 py-2 text-center text-sm font-bold text-ink-950">
-          {FORM_MESSAGES[issues[0]]}
+          {FORM_MESSAGES[posture[0]]}
         </div>
       )}
 
@@ -88,27 +103,31 @@ export function CameraStage({
         </div>
       )}
 
+      {/* The camera is mandatory, so a failure is blocking: there is no manual
+          escape hatch to offer. */}
       {error && (
         <div className="absolute inset-0 grid place-items-center bg-ink-950/95 p-6">
           <div className="w-full max-w-xs text-center">
-            <p className="mb-4 text-sm leading-relaxed text-ink-200">
+            <p className="mb-2 text-base font-bold text-ink-100">
+              Caméra indisponible
+            </p>
+            <p className="mb-4 text-sm leading-relaxed text-ink-300">
               {error.message}
             </p>
-            <div className="flex flex-col gap-2">
-              {onRetry && (
-                <Button size="md" onClick={onRetry}>
-                  Réessayer
-                </Button>
-              )}
-              {onUseManual && (
-                <Button size="md" variant="secondary" onClick={onUseManual}>
-                  Compter manuellement
-                </Button>
-              )}
-            </div>
+            <p className="mb-4 text-xs leading-relaxed text-ink-500">
+              SportzFight compte tes pompes avec la caméra : elle est
+              indispensable pour lancer un battle.
+            </p>
+            {onRetry && (
+              <Button size="md" onClick={onRetry}>
+                Réessayer
+              </Button>
+            )}
           </div>
         </div>
       )}
+
+      {children}
     </div>
   );
 }

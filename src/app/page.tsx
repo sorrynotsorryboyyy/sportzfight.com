@@ -130,17 +130,15 @@ export default function Home() {
           </p>
         )}
 
-        <div className="mt-8 flex flex-col gap-3">
-          <Link href={cta('/battle/create')} className="block">
+        <div className="mt-8">
+          <Link href={cta('/matchmaking')} className="block">
             <Button size="xl" className="animate-pulse-ring">
-              CRÉER UN BATTLE
+              RECHERCHER UN BATTLE
             </Button>
           </Link>
-          <Link href={cta('/battle/join')} className="block">
-            <Button size="xl" variant="secondary">
-              REJOINDRE UN BATTLE
-            </Button>
-          </Link>
+          <p className="mt-3 text-center text-sm text-ink-500">
+            On te trouve un adversaire au hasard.
+          </p>
         </div>
 
         <RecentBattles />

@@ -269,7 +269,7 @@ describe('resilience', () => {
     const det = new PushupDetector();
     const r = det.process(null, 1000);
     expect(r.count).toBe(0);
-    expect(r.formFeedback).toContain('low_visibility');
+    expect(r.postureIssues).toContain('low_visibility');
   });
 
   it('counts when the ankles are out of frame (falls back to hips)', () => {
@@ -279,28 +279,40 @@ describe('resilience', () => {
     expect(det.autoReps).toBe(1);
   });
 
+  /** Posture faults are debounced, so hold the pose for a few frames. */
+  function settle(det: PushupDetector, opts: Partial<FrameOpts> & { elbowAngle: number }) {
+    let r = det.process(frame(opts), 1000);
+    for (let i = 1; i <= 8; i++) r = det.process(frame(opts), 1000 + i * 33);
+    return r;
+  }
+
   it('surfaces a form hint when the hips sag', () => {
-    const det = new PushupDetector();
-    const r = det.process(frame({ elbowAngle: 170, hipOffset: 0.2 }), 1000);
-    expect(r.formFeedback).toContain('hips_sagging');
+    const r = settle(new PushupDetector(), { elbowAngle: 170, hipOffset: 0.2 });
+    expect(r.postureIssues).toContain('hips_sagging');
   });
 
   it('tells sagging apart from piking by direction', () => {
-    const sagDet = new PushupDetector();
-    const sag = sagDet.process(frame({ elbowAngle: 170, hipOffset: 0.2 }), 1000);
-    expect(sag.formFeedback).toContain('hips_sagging');
-    expect(sag.formFeedback).not.toContain('hips_piked');
+    const sag = settle(new PushupDetector(), { elbowAngle: 170, hipOffset: 0.2 });
+    expect(sag.postureIssues).toContain('hips_sagging');
+    expect(sag.postureIssues).not.toContain('hips_piked');
 
-    const pikeDet = new PushupDetector();
-    const pike = pikeDet.process(frame({ elbowAngle: 170, hipOffset: -0.2 }), 1000);
-    expect(pike.formFeedback).toContain('hips_piked');
-    expect(pike.formFeedback).not.toContain('hips_sagging');
+    const pike = settle(new PushupDetector(), { elbowAngle: 170, hipOffset: -0.2 });
+    expect(pike.postureIssues).toContain('hips_piked');
+    expect(pike.postureIssues).not.toContain('hips_sagging');
   });
 
   it('accepts a rigid plank as good form', () => {
+    const r = settle(new PushupDetector(), { elbowAngle: 170, hipOffset: 0 });
+    expect(r.postureIssues).toEqual([]);
+  });
+
+  it('does NOT report a posture fault from a single noisy frame', () => {
+    // The debounce is what stops one bad landmark flashing a warning
+    // mid-rep. A transient blip must not reach the indicator.
     const det = new PushupDetector();
-    const r = det.process(frame({ elbowAngle: 170, hipOffset: 0 }), 1000);
-    expect(r.formFeedback).toEqual([]);
+    for (let i = 0; i < 6; i++) det.process(frame({ elbowAngle: 170 }), 1000 + i * 33);
+    const blip = det.process(frame({ elbowAngle: 170, hipOffset: 0.25 }), 1200);
+    expect(blip.postureIssues).toEqual([]);
   });
 });
 
@@ -331,6 +343,39 @@ describe('manual correction', () => {
     expect(det.adjustment).toBe(3);
     // The security rules assert autoReps + manualAdjust === score.
     expect(det.autoReps + det.adjustment).toBe(5);
+  });
+});
+
+describe('the false-orange regression', () => {
+  // A phone propped on the floor sees a genuinely level body at a substantial
+  // image-space angle. At the old 35 degree limit this painted a correct plank
+  // as "not horizontal" permanently, which is what the athlete actually hit.
+  it('accepts a correct plank seen from a tilted camera', () => {
+    for (const tilt of [5, 20, 35, 45, 50]) {
+      const det = new PushupDetector();
+      let r = det.process(frame({ elbowAngle: 170, inclination: tilt }), 1000);
+      for (let i = 1; i <= 8; i++) {
+        r = det.process(frame({ elbowAngle: 170, inclination: tilt }), 1000 + i * 33);
+      }
+      expect(
+        r.postureIssues,
+        `tilt ${tilt} deg should read as horizontal`,
+      ).not.toContain('not_horizontal');
+    }
+  });
+
+  it('counts reps normally at a realistic camera tilt', () => {
+    const det = new PushupDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 5; i++) doRep(det, t, { inclination: 40 });
+    expect(det.autoReps).toBe(5);
+  });
+
+  it('STILL rejects a seated body, which is the gate that matters', () => {
+    const det = new PushupDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 5; i++) doRep(det, t, { inclination: 85 });
+    expect(det.autoReps).toBe(0);
   });
 });
 

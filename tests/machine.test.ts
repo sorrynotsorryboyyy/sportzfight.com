@@ -17,7 +17,6 @@ const T0 = 1_000_000_000_000; // fixed server instant for determinism
 
 function battle(over: Partial<BattleDoc> = {}): BattleDoc {
   return {
-    code: 'ABC346',
     exercise: 'pushups',
     durationSecs: 60,
     status: 'waiting',

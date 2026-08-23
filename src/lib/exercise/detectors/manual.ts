@@ -45,6 +45,8 @@ export class ManualDetector implements ExerciseDetector {
     const r: DetectorResult = {
       count: this.count,
       phase: 'idle',
+      postureIssues: [],
+      repNotes: [],
       formFeedback: [],
       confidence: 1,
       repProgress: 0,
