@@ -71,8 +71,11 @@ export interface UserDoc {
    * Functions there are no custom claims, so this can never reach
    * request.auth.token and no rule can act on it — it gates a dev-only UI and
    * nothing more. See src/app/admin/page.tsx.
+   *
+   * Typed as a plain string, not the literal 'admin': the value is whatever a
+   * human typed into the console, so readers must normalise before comparing.
    */
-  role?: 'admin';
+  role?: string;
 }
 
 export type UserWithId = UserDoc & { id: string };

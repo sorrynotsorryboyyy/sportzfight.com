@@ -48,6 +48,18 @@ interface AuthValue {
 
 const Ctx = createContext<AuthValue | null>(null);
 
+/**
+ * Is this profile an admin?
+ *
+ * The value is typed by hand in the Firestore console, so it is trimmed and
+ * lower-cased before comparing: pasting the word picks up a trailing newline
+ * or a stray capital far too easily, and silently failing the check sends the
+ * user to a redirect with no explanation of why.
+ */
+function isAdminRole(role: unknown): boolean {
+  return typeof role === 'string' && role.trim().toLowerCase() === 'admin';
+}
+
 /** Ensure users/{uid} exists. Safe to call on every sign-in. */
 async function ensureUserDoc(user: User) {
   const ref = doc(db(), 'users', user.uid);
@@ -125,8 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isFirebaseConfigured || !user) return;
     return onSnapshot(
       doc(db(), 'users', user.uid),
-      (snap) =>
-        setAdminFlag((snap.data() as UserDoc | undefined)?.role === 'admin'),
+      (snap) => setAdminFlag(isAdminRole((snap.data() as UserDoc | undefined)?.role)),
       () => setAdminFlag(false),
     );
   }, [user]);

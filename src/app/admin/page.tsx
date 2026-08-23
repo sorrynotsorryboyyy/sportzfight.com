@@ -88,7 +88,7 @@ function Metric({
 }
 
 export default function AdminPage() {
-  const { isAdmin, loading } = useRequireAdmin();
+  const { user, isAdmin, loading, denied } = useRequireAdmin();
   const [overrides, setOverrides] = useState<Overrides>({});
 
   // Sliders mutate the shared config object directly. That is acceptable
@@ -119,6 +119,56 @@ export default function AdminPage() {
   }, [isAdmin, start, stop]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
+
+  // Say WHY, and for which account. A silent redirect here is indistinguishable
+  // from a broken page, and the account signed in is very often not the one the
+  // role was set on.
+  if (denied) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
+        <Logo className="text-2xl" />
+        <div>
+          <h1 className="text-3xl font-black uppercase tracking-tighter">
+            Accès réservé
+          </h1>
+          <p className="mt-3 text-ink-300">
+            Ce compte n’a pas le rôle admin.
+          </p>
+        </div>
+
+        <Card className="text-sm">
+          <p className="text-ink-400">Connecté en tant que</p>
+          <p className="mt-1 font-semibold text-ink-100">
+            {user?.email ?? user?.uid}
+          </p>
+          <p className="mt-4 text-ink-400">Pour activer l’accès :</p>
+          <ol className="mt-2 space-y-1.5 text-ink-300">
+            <li>
+              1. Console Firestore →{' '}
+              <code className="rounded bg-ink-800 px-1 text-volt-400">users</code>{' '}
+              →{' '}
+              <code className="break-all rounded bg-ink-800 px-1 text-volt-400">
+                {user?.uid}
+              </code>
+            </li>
+            <li>
+              2. Champ{' '}
+              <code className="rounded bg-ink-800 px-1 text-volt-400">role</code>{' '}
+              (string) ={' '}
+              <code className="rounded bg-ink-800 px-1 text-volt-400">admin</code>{' '}
+              — sans espace ni retour à la ligne
+            </li>
+            <li>3. La page se débloque sans rechargement</li>
+          </ol>
+        </Card>
+
+        <Link href="/">
+          <Button variant="ghost">Retour à l’accueil</Button>
+        </Link>
+      </main>
+    );
+  }
+
   if (loading || !isAdmin) {
     return (
       <main className="grid min-h-dvh place-items-center p-6">
