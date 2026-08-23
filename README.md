@@ -64,11 +64,11 @@ main : `npm run setup:mediapipe`.
 ## Tests
 
 ```bash
-npm run test        # logique pure : machine à états, détecteur, score sync (56)
-npm run test:rules  # règles de sécurité contre l'émulateur (68)
+npm run test        # logique pure : machine à états, détecteur, XP, pseudos (76)
+npm run test:rules  # règles de sécurité contre l'émulateur (101)
 npm run test:mm     # courses de matchmaking, 2 et 4 joueurs simultanés (5)
 npm run test:e2e    # parcours complet, vraie bataille de 60 s (9)
-npm run test:all    # tout (139), émulateurs lancés automatiquement
+npm run test:all    # tout (196), émulateurs lancés automatiquement
 npm run lint && npm run typecheck
 ```
 
@@ -179,6 +179,41 @@ tombent d'accord sans se parler.
 Les battles abandonnés sortent de la file par la fraîcheur du heartbeat (15 s),
 et chaque recherche recycle au passage ceux qui traînent depuis plus d'une
 heure — le ramasse-miettes qu'on ne peut pas planifier sans Cloud Functions.
+
+### Progression et classement
+
+Les compteurs (`wins`, `xp`, `coins`, `totalReps`…) vivent sur `users/{uid}` et
+sont écrits **par le client**, mais chaque delta est vérifié par les règles
+contre le battle terminé dont il prétend venir : impossible de réclamer une
+victoire perdue ou de gonfler ses pompes.
+
+Le vrai risque, c'est le rejeu — recréditer le même battle en boucle. Les règles
+n'ont aucune mémoire d'une écriture à l'autre, donc la mémoire est un document :
+un **reçu** `users/{uid}/creditedBattles/{battleId}`. Le crédit se fait en deux
+temps que les règles imposent dans l'ordre :
+
+1. **claim** — poser `pendingBattleId`, autorisé seulement si aucun reçu n'existe ;
+2. **settle** — un batch atomique qui crée le reçu et incrémente les compteurs.
+
+`level` n'est **jamais stocké** : c'est une fonction pure de `xp`, et les règles
+refusent toute écriture de ce champ.
+
+⚠️ Les montants d'XP sont dupliqués dans `firestore.rules` (les règles ne peuvent
+pas importer du TS). Un écart ne lève pas d'erreur : il refuse silencieusement
+tous les crédits. Un test verrouille la correspondance.
+
+### Pseudos
+
+Uniques via une collection de verrous `usernames/{minuscules}` — les règles ne
+sachant pas faire de requête, l'unicité passe par un document. Le charset
+(`^[a-zA-Z][a-zA-Z0-9_]{2,15}$`) est imposé **côté serveur** ; le filtre
+d'insultes est côté client uniquement et donc contournable.
+
+Les comptes créés avant cette règle portent un nom Google (« Léo Chevalier »).
+Les règles valident le document **après** écriture, donc durcir le motif sans
+précaution gèlerait ces comptes — y compris l'écran qui corrige le nom. Le
+pseudo n'est donc validé **que lorsqu'il change**, et le client force le
+renommage avant de laisser accéder au matchmaking.
 
 ## Ajouter un exercice
 

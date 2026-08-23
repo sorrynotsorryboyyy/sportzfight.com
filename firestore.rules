@@ -28,52 +28,203 @@ service cloud.firestore {
     function staleLiveSecs()  { return 300; }   // 5 min
     function abandonWaitSecs(){ return 3600; }  // 1 h
 
+    // ---- award contract (must match src/lib/progression/awards.ts) ----
+    // A mismatch here does not throw: it silently denies every credit write
+    // and players stop earning anything at all.
+    function xpWin()    { return 100; }
+    function xpDraw()   { return 60; }
+    function xpLoss()   { return 40; }
+    function xpPerRep() { return 2; }
+    function coinsWin() { return 25; }
+    function coinsDraw(){ return 15; }
+    function coinsLoss(){ return 10; }
+
+    // ---- reading a finished battle to verify a stat claim ----
+    // These cost one document read per rule evaluation, but Firestore memoises
+    // identical get() paths within a single evaluation, so a settle that calls
+    // several of them still pays for one.
+    function battleOf(bid) {
+      return get(/databases/$(database)/documents/battles/$(bid)).data;
+    }
+    function battleExists(bid) {
+      return exists(/databases/$(database)/documents/battles/$(bid));
+    }
+    /** A battle that actually concluded between two players. */
+    function creditableBattle(bid, uid) {
+      return battleExists(bid)
+          && battleOf(bid).status == 'finished'
+          && battleOf(bid).player2 != null
+          && uid in battleOf(bid).players;
+    }
+    function repsOf(bid, uid) {
+      return uid == battleOf(bid).player1
+               ? battleOf(bid).player1Score
+               : battleOf(bid).player2Score;
+    }
+    function wonBy(bid, uid)  { return battleOf(bid).winner == uid; }
+    function drawnBy(bid)     { return battleOf(bid).winner == 'draw'; }
+    function xpAward(bid, uid) {
+      return (drawnBy(bid) ? xpDraw() : wonBy(bid, uid) ? xpWin() : xpLoss())
+           + repsOf(bid, uid) * xpPerRep();
+    }
+    function coinAward(bid, uid) {
+      return drawnBy(bid) ? coinsDraw() : wonBy(bid, uid) ? coinsWin() : coinsLoss();
+    }
+
+    // ===============================================================
+    // USERS — profile, verified progression counters, username lock
+    // ===============================================================
     match /users/{userId} {
-      // Profiles are readable by any signed-in user so a battle can show the
-      // opponent's name and avatar. This is also how the client learns its own
-      // `role`: readable here, writable ONLY from the Firestore console, which
-      // bypasses rules entirely. There is deliberately no path below that lets
-      // a client write `role` — see the hasOnly() clauses.
-      allow read: if signedIn();
+      function isSelf() { return signedIn() && request.auth.uid == userId; }
+      function u()      { return resource.data; }
+      function nu()     { return request.resource.data; }
+      function touched(){ return nu().diff(u()).affectedKeys(); }
 
-      allow create: if signedIn()
-                    && request.auth.uid == userId
-                    // hasOnly() omits 'role': a client cannot mint itself an
-                    // admin profile at sign-up. Do not add it to this list.
-                    && request.resource.data.keys().hasOnly(
-                         ['username', 'email', 'avatar', 'createdAt'])
-                    && request.resource.data.username is string
-                    && request.resource.data.username.size() >= 2
-                    && request.resource.data.username.size() <= 24
-                    && request.resource.data.createdAt == request.time;
+      /** Counter value before the write; absent counts as 0 on older docs. */
+      function was(f)   { return u().get(f, 0); }
+      function now_(f)  { return nu().get(f, 0); }
+      function bumped(f, by) { return now_(f) == was(f) + by; }
 
-      // Only display fields are mutable. Note there are deliberately no
-      // wins/losses counters: a client cannot be trusted to increment its own
-      // record, and without a server we cannot verify one. Aggregates are
-      // computed by querying finished battles instead.
-      //
-      // `role` is likewise absent from affectedKeys(): diff() reports ADDED and
-      // REMOVED keys as well as changed ones, so this single clause already
-      // blocks "grant myself admin", "escalate my role" and "drop my role".
-      // The explicit role clause below is redundant today, but it turns a
-      // careless future widening of the hasOnly() list (adding, say, a `bio`
-      // field) into a test failure rather than silent privilege escalation.
-      allow update: if signedIn()
-                    && request.auth.uid == userId
-                    && request.resource.data.diff(resource.data)
-                         .affectedKeys().hasOnly(['username', 'avatar'])
-                    && !request.resource.data.diff(resource.data)
-                         .affectedKeys().hasAny(['role'])
-                    && request.resource.data.username is string
-                    && request.resource.data.username.size() >= 2
-                    && request.resource.data.username.size() <= 24;
+      // The charset is enforced HERE, so it is a real server-side guarantee.
+      // Profanity is deliberately NOT attempted: rules cannot hold a wordlist,
+      // and pretending otherwise would be a lie. That filter is client-side.
+      function validUsername(name) {
+        return name is string
+            && name.matches('^[a-zA-Z][a-zA-Z0-9_]{2,15}$');
+      }
+
+      // A single profile stays readable: the battle screen needs the opponent's
+      // name and avatar, and the client reads its own role here.
+      allow get: if signedIn();
+
+      // LISTING is the leaderboard, and it is the dangerous verb: it lets any
+      // signed-in client page the whole collection. It is only safe because
+      // this document no longer holds an email address — that moved to the
+      // owner-only private/ subcollection. DO NOT put PII back on this doc.
+      allow list: if signedIn();
+
+      // ---------------- CREATE ----------------
+      // Counters are absent at creation and read as zero. 'role' and 'level'
+      // are excluded: a client can neither mint itself an admin nor invent a
+      // level, which is derived from xp and never stored.
+      allow create: if isSelf()
+                    && nu().keys().hasOnly(['username', 'avatar', 'createdAt'])
+                    && validUsername(nu().username)
+                    && nu().createdAt == request.time;
+
+      // ---------------- PROFILE UPDATE ----------------
+      // Rules validate the POST-WRITE document, not the diff. Accounts seeded
+      // from a Google display name ("Léo Chevalier" — space and accent) predate
+      // the charset. Without this grandfather clause such a user could never
+      // change their avatar and — fatally — could never submit the rename that
+      // fixes the name. So validate the username only when it actually changes.
+      // Remove the clause once every stored name is compliant.
+      function usernameUnchanged() {
+        return !('username' in touched());
+      }
+      function validProfileUpdate() {
+        return touched().hasOnly(['username', 'avatar'])
+            && (usernameUnchanged() || validUsername(nu().username));
+      }
+
+      // ---------------- PHASE 1: claim a finished battle ----------------
+      // Sets pendingBattleId and nothing else. The receipt check is what makes
+      // replaying one battle to farm XP impossible: rules cannot see other
+      // writes in the same batch, but they CAN see previously committed state.
+      function validClaim() {
+        return touched().hasOnly(['pendingBattleId'])
+            && nu().pendingBattleId is string
+            && creditableBattle(nu().pendingBattleId, userId)
+            && !exists(/databases/$(database)/documents/users/$(userId)/creditedBattles/$(nu().pendingBattleId));
+      }
+
+      // ---------------- PHASE 2: settle the claimed battle ----------------
+      // Every counter must move by exactly the amount derived from the battle
+      // document itself, so a client can neither claim a win it lost nor
+      // inflate its reps. The receipt is created in the same batch; see the
+      // creditedBattles rule, which requires this same pendingBattleId.
+      function bid() { return u().pendingBattleId; }
+      function validSettle() {
+        return u().get('pendingBattleId', null) != null
+            && creditableBattle(bid(), userId)
+            && touched().hasOnly([
+                 'pendingBattleId', 'wins', 'losses', 'draws',
+                 'xp', 'coins', 'totalReps', 'battlesPlayed', 'bestScore'])
+            && nu().pendingBattleId == null
+            && bumped('battlesPlayed', 1)
+            && bumped('xp', xpAward(bid(), userId))
+            && bumped('coins', coinAward(bid(), userId))
+            && bumped('totalReps', repsOf(bid(), userId))
+            && bumped('wins',   drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 1 : 0))
+            && bumped('losses', drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 0 : 1))
+            && bumped('draws',  drawnBy(bid()) ? 1 : 0)
+            // A personal best only ever ratchets upward.
+            && now_('bestScore') == (repsOf(bid(), userId) > was('bestScore')
+                                       ? repsOf(bid(), userId)
+                                       : was('bestScore'));
+      }
+
+      // Drop a stuck claim without paying it out, so a client that died between
+      // the two phases is not wedged forever.
+      function validAbandonClaim() {
+        return touched().hasOnly(['pendingBattleId'])
+            && nu().pendingBattleId == null;
+      }
+
+      allow update: if isSelf()
+                    && !touched().hasAny(['role', 'email', 'level', 'createdAt'])
+                    && (
+                         validProfileUpdate()
+                      || validClaim()
+                      || validSettle()
+                      || validAbandonClaim()
+                    );
 
       allow delete: if false;
 
+      // Email and anything else personal lives here: readable only by its
+      // owner, and a subcollection is only listable per-parent, so it can never
+      // be swept up by a leaderboard query over /users.
+      match /private/{docId} {
+        allow read, write: if isSelf();
+      }
+
+      // Payout receipts. Immutable once written — that immutability IS the
+      // double-credit guard.
+      match /creditedBattles/{battleId} {
+        allow read: if isSelf();
+        allow create: if isSelf()
+                      // Only for the battle the parent document has claimed.
+                      && get(/databases/$(database)/documents/users/$(userId))
+                           .data.get('pendingBattleId', null) == battleId
+                      && request.resource.data.keys().hasOnly(['at'])
+                      && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
+
       // Private scratch space for the clock probe.
       match /clock/{docId} {
-        allow read, write: if signedIn() && request.auth.uid == userId;
+        allow read, write: if isSelf();
       }
+    }
+
+    // ===============================================================
+    // USERNAMES — uniqueness locks. The document id is the lowercased name.
+    // ===============================================================
+    match /usernames/{key} {
+      // Readable so the account screen can report "already taken" before the
+      // user submits. Holds a uid and nothing else.
+      allow get, list: if signedIn();
+
+      allow create: if signedIn()
+                    && request.resource.data.keys().hasOnly(['uid'])
+                    && request.resource.data.uid == request.auth.uid
+                    && key.matches('^[a-z][a-z0-9_]{2,15}$');
+
+      // Never reassigned in place: releasing and claiming are separate writes
+      // inside one transaction, so a lock is only ever taken when truly free.
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /battles/{battleId} {

@@ -63,9 +63,10 @@ async function makeClient(name: string, email: string): Promise<Client> {
   const cred = await createUserWithEmailAndPassword(auth, email, 'passw0rd!');
   const uid = cred.user.uid;
 
+  // No email on the profile: it is listable for the leaderboard, so anything
+  // personal there would be harvestable. It lives in private/contact instead.
   await setDoc(doc(db, 'users', uid), {
     username: name,
-    email,
     avatar: null,
     createdAt: serverTimestamp(),
   });

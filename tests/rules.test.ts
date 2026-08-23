@@ -86,6 +86,15 @@ const baseBattle = (over: Record<string, unknown> = {}) => ({
 const createPayload = (over: Record<string, unknown> = {}) =>
   baseBattle({ player1HeartbeatAt: serverTimestamp(), ...over });
 
+/** Write any path with rules disabled — the emulator's stand-in for the console. */
+async function consoleWrite(path: string, data: Record<string, unknown>) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const [col, id, ...rest] = path.split('/');
+    const fs = ctx.firestore() as unknown as Firestore;
+    await setDoc(rest.length ? doc(fs, col, id, ...rest) : doc(fs, col, id), data);
+  });
+}
+
 /** Seed a doc bypassing rules. */
 async function seed(data: Record<string, unknown>) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -756,45 +765,78 @@ describe('user profiles', () => {
     await assertSucceeds(
       setDoc(doc(dbOf(P1), 'users', P1), {
         username: 'Rocky',
-        email: 'r@example.com',
         avatar: null,
         createdAt: serverTimestamp(),
       }),
     );
   });
 
-  it("rejects creating somebody else's profile", async () => {
-    await assertFails(
-      setDoc(doc(dbOf(P2), 'users', P1), {
-        username: 'Impostor',
-        email: 'x@example.com',
-        avatar: null,
-        createdAt: serverTimestamp(),
-      }),
-    );
-  });
-
-  it('rejects smuggling a wins counter onto a profile', async () => {
+  it('REJECTS an email on the profile document', async () => {
+    // users/{uid} is listable by any signed-in client so the leaderboard can
+    // rank it. Anything personal on it would be harvestable in one query.
     await assertFails(
       setDoc(doc(dbOf(P1), 'users', P1), {
         username: 'Rocky',
         email: 'r@example.com',
         avatar: null,
         createdAt: serverTimestamp(),
-        wins: 999,
       }),
     );
   });
 
-  it('lets a signed-in user read another profile', async () => {
-    await env.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore() as unknown as Firestore, 'users', P1), {
-        username: 'Rocky',
+  it('rejects adding an email later', async () => {
+    await consoleWrite('users/' + P1, { username: 'Rocky', avatar: null });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { email: 'r@example.com' }),
+    );
+  });
+
+  it('keeps the email readable only by its owner', async () => {
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'users', P1, 'private', 'contact'), {
         email: 'r@example.com',
+      }),
+    );
+    await assertFails(getDoc(doc(dbOf(P2), 'users', P1, 'private', 'contact')));
+  });
+
+  it("rejects creating somebody else's profile", async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P2), 'users', P1), {
+        username: 'Impostor',
         avatar: null,
-        createdAt: Timestamp.now(),
-      });
-    });
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rejects smuggling counters onto a fresh profile', async () => {
+    for (const extra of [{ wins: 99 }, { xp: 5000 }, { coins: 1000 }, { level: 40 }]) {
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'users', P1), {
+          username: 'Rocky',
+          avatar: null,
+          createdAt: serverTimestamp(),
+          ...extra,
+        }),
+      );
+    }
+  });
+
+  it('enforces the username charset at creation', async () => {
+    for (const bad of ['Ro', 'Roc ky', 'Léo', '1Rocky', 'a'.repeat(17), 'Roc-ky']) {
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'users', P1), {
+          username: bad,
+          avatar: null,
+          createdAt: serverTimestamp(),
+        }),
+      );
+    }
+  });
+
+  it('lets a signed-in user read another profile', async () => {
+    await consoleWrite('users/' + P1, { username: 'Rocky', avatar: null });
     await assertSucceeds(getDoc(doc(dbOf(P2), 'users', P1)));
   });
 
@@ -819,9 +861,10 @@ describe('user profiles — the admin role', () => {
   /** Stand-in for a console write, which runs with an admin credential. */
   const consoleSetProfile = (uid: string, data: Record<string, unknown>) =>
     env.withSecurityRulesDisabled(async (ctx) => {
+      // No email: it lives in users/{uid}/private/contact now, and the update
+      // rule denies any write that touches an email field on the profile.
       await setDoc(doc(ctx.firestore() as unknown as Firestore, 'users', uid), {
         username: 'Rocky',
-        email: 'r@example.com',
         avatar: null,
         createdAt: Timestamp.now(),
         ...data,
@@ -879,8 +922,10 @@ describe('user profiles — the admin role', () => {
     // simply froze every admin profile — a very different bug.
     await consoleSetProfile(P1, { role: 'admin' });
     await assertSucceeds(
+      // Charset-compliant: 'Rocky II' has a space, which the username rules
+      // now reject for a reason unrelated to what this test is checking.
       updateDoc(doc(dbOf(P1), 'users', P1), {
-        username: 'Rocky II',
+        username: 'RockyTwo',
         avatar: null,
       }),
     );
@@ -896,5 +941,331 @@ describe('user profiles — the admin role', () => {
   it('lets a signed-in user read another profile that has a role', async () => {
     await consoleSetProfile(P1, { role: 'admin' });
     await assertSucceeds(getDoc(doc(dbOf(P2), 'users', P1)));
+  });
+});
+
+
+describe('progression — counters cannot be invented', () => {
+  /**
+   * A client writes its own counters, so the rules must verify every delta
+   * against the finished battle it claims to come from. These are the attacks
+   * a modified client would actually try.
+   *
+   * Award contract (mirrors src/lib/progression/awards.ts):
+   *   win 100 XP / 25 SC, draw 60 / 15, loss 40 / 10, plus 2 XP per rep.
+   */
+  const FINISHED = 3 + 60 + 5;
+
+  /** A finished battle P1 won 32-27. */
+  async function seedFinished(over = {}) {
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 32,
+      player2Score: 27,
+      player1Meta: { autoReps: 32, manualAdjust: 0, source: 'camera' },
+      player2Meta: { autoReps: 27, manualAdjust: 0, source: 'camera' },
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+      ...over,
+    });
+  }
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    xp: 0,
+    coins: 0,
+    totalReps: 0,
+    battlesPlayed: 0,
+    bestScore: 0,
+    ...over,
+  });
+
+  /** The settle payload for P1's win: 100 + 32*2 = 164 XP, 25 SC. */
+  const p1Settle = (over = {}) => ({
+    pendingBattleId: null,
+    battlesPlayed: 1,
+    xp: 164,
+    coins: 25,
+    totalReps: 32,
+    wins: 1,
+    losses: 0,
+    draws: 0,
+    bestScore: 32,
+    ...over,
+  });
+
+  it('REJECTS inventing a win with no battle at all', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { wins: 1, xp: 164 }),
+    );
+  });
+
+  it('REJECTS setting xp or coins directly', async () => {
+    await consoleWrite('users/' + P1, profile());
+    for (const patch of [{ xp: 99999 }, { coins: 99999 }, { totalReps: 5000 }]) {
+      await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), patch));
+    }
+  });
+
+  it('REJECTS writing a level field (level is derived from xp)', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), { level: 50 }));
+  });
+
+  it('accepts a claim for a battle you really played', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+  });
+
+  it('REJECTS claiming a battle you did not play', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P3, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P3), 'users', P3), { pendingBattleId: BID }),
+    );
+  });
+
+  it('REJECTS claiming a battle that is not finished', async () => {
+    await seedLive(10);
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+  });
+
+  it('REJECTS claiming a battle id that does not exist', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: 'no-such-battle' }),
+    );
+  });
+
+  it('settles a claimed win with exactly the right amounts', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle()),
+    );
+  });
+
+  it('REJECTS a settle that inflates the XP', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ xp: 5000 })),
+    );
+  });
+
+  it('REJECTS the LOSER claiming a win', async () => {
+    // P2 lost 27-32. Claiming wins:1 must fail even though the battle is real
+    // and P2 really played it.
+    await seedFinished();
+    await consoleWrite('users/' + P2, profile({ pendingBattleId: BID }));
+    await assertFails(
+      updateDoc(doc(dbOf(P2), 'users', P2), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 94,
+        coins: 10,
+        totalReps: 27,
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        bestScore: 27,
+      }),
+    );
+  });
+
+  it("accepts the loser's correct payout", async () => {
+    // 40 + 27*2 = 94 XP, 10 SC, losses+1.
+    await seedFinished();
+    await consoleWrite('users/' + P2, profile({ pendingBattleId: BID }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P2), 'users', P2), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 94,
+        coins: 10,
+        totalReps: 27,
+        wins: 0,
+        losses: 1,
+        draws: 0,
+        bestScore: 27,
+      }),
+    );
+  });
+
+  it('REJECTS claiming reps you did not do', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ totalReps: 200 })),
+    );
+  });
+
+  it('REJECTS a settle with no claim standing', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile()); // pendingBattleId absent
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), p1Settle()));
+  });
+
+  it('does not let bestScore be ratcheted down', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID, bestScore: 90 }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32 })),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 90 })),
+    );
+  });
+
+  it('lets a stuck claim be abandoned without payout', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: null }),
+    );
+  });
+
+  it('THE BIG ONE: cannot claim a battle that was already credited', async () => {
+    // The receipt is the only thing standing between one battle and infinite
+    // XP. Rules have no memory of previous writes, so this document IS the
+    // memory.
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile());
+    await consoleWrite('users/' + P1 + '/creditedBattles/' + BID, {
+      at: Timestamp.now(),
+    });
+
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
+  });
+
+  it('a receipt can only be written for the currently claimed battle', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'users', P1, 'creditedBattles', 'some-other-battle'), {
+        at: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'users', P1, 'creditedBattles', BID), {
+        at: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('a receipt is immutable once written', async () => {
+    await consoleWrite('users/' + P1 + '/creditedBattles/' + BID, {
+      at: Timestamp.now(),
+    });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1, 'creditedBattles', BID), {
+        at: serverTimestamp(),
+      }),
+    );
+  });
+
+  it("rejects touching another player's counters", async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P2, profile({ pendingBattleId: BID }));
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P2), p1Settle()));
+  });
+});
+
+describe('usernames — the uniqueness lock', () => {
+  it('lets a user claim a free name', async () => {
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'usernames', 'rocky'), { uid: P1 }),
+    );
+  });
+
+  it('REJECTS claiming a name somebody else holds', async () => {
+    await consoleWrite('usernames/rocky', { uid: P1 });
+    await assertFails(setDoc(doc(dbOf(P2), 'usernames', 'rocky'), { uid: P2 }));
+  });
+
+  it('REJECTS pointing a lock at another uid', async () => {
+    await assertFails(setDoc(doc(dbOf(P1), 'usernames', 'rocky'), { uid: P2 }));
+  });
+
+  it('enforces the charset on the lock key itself', async () => {
+    for (const bad of ['ro', '1rocky', 'roc ky', 'Rocky']) {
+      await assertFails(setDoc(doc(dbOf(P1), 'usernames', bad), { uid: P1 }));
+    }
+  });
+
+  it('lets a user release only their own lock', async () => {
+    await consoleWrite('usernames/rocky', { uid: P1 });
+    const { deleteDoc } = await import('firebase/firestore');
+    await assertFails(deleteDoc(doc(dbOf(P2), 'usernames', 'rocky')));
+    await assertSucceeds(deleteDoc(doc(dbOf(P1), 'usernames', 'rocky')));
+  });
+
+  it('never allows a lock to be reassigned in place', async () => {
+    await consoleWrite('usernames/rocky', { uid: P1 });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'usernames', 'rocky'), { uid: P2 }),
+    );
+  });
+});
+
+describe('usernames — legacy migration', () => {
+  // Both production accounts were seeded from a Google display name
+  // ("Léo Chevalier": space and accent), which the charset now rejects.
+  const LEGACY = { username: 'Léo Chevalier', avatar: null };
+
+  it('lets a legacy account change its AVATAR without fixing the name first', async () => {
+    // The grandfather clause. Rules validate the post-write document, so
+    // without it this write carries the illegal username and is denied —
+    // freezing the account out of the very screen that fixes it.
+    await consoleWrite('users/' + P1, LEGACY);
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
+    );
+  });
+
+  it('lets a legacy account replace the name with a compliant one', async () => {
+    await consoleWrite('users/' + P1, LEGACY);
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'LeoChevalier' }),
+    );
+  });
+
+  it('REJECTS replacing it with another non-compliant name', async () => {
+    await consoleWrite('users/' + P1, LEGACY);
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Léo Chevalier 2' }),
+    );
+  });
+
+  it('lets a legacy account still be credited for a battle', async () => {
+    // The credit path must not be blocked by an old name, or legacy players
+    // silently stop earning XP.
+    await seedLive(3 + 60 + 5, {
+      status: 'finished',
+      player1Score: 10,
+      player2Score: 4,
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    await consoleWrite('users/' + P1, LEGACY);
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
+    );
   });
 });

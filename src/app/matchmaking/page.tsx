@@ -8,11 +8,13 @@ import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
+import { useAuth } from '@/lib/firebase/auth-context';
 import { findOrCreateBattle } from '@/lib/firebase/matchmaking';
 import { getExercise, DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 
 export default function MatchmakingPage() {
   const { user, loading } = useRequireAuth();
+  const { needsUsernameFix, profile } = useAuth();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   // Guards React StrictMode's double-invoked effects, which would otherwise
@@ -23,6 +25,16 @@ export default function MatchmakingPage() {
 
   useEffect(() => {
     if (!user || startedRef.current) return;
+    // A legacy pseudo must be replaced first: it is about to appear on a public
+    // leaderboard, and the uniqueness lock does not exist for it yet.
+    if (needsUsernameFix) {
+      router.replace('/compte');
+      return;
+    }
+    // Wait for the profile before deciding — otherwise the check races the
+    // subscription and sends compliant users to /compte for a frame.
+    if (!profile) return;
+
     startedRef.current = true;
 
     void findOrCreateBattle(user.uid)
@@ -31,7 +43,7 @@ export default function MatchmakingPage() {
         setError('Impossible de trouver un adversaire. Vérifie ta connexion.');
         startedRef.current = false;
       });
-  }, [user, router]);
+  }, [user, router, needsUsernameFix, profile]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 

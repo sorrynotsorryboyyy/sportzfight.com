@@ -59,18 +59,43 @@ export interface BattleDoc {
 
 export type BattleWithId = BattleDoc & { id: string };
 
-/** Public profile. wins/losses are derived by query, never client-written. */
+/**
+ * Public profile.
+ *
+ * Deliberately holds NO email: this document is listable by any signed-in
+ * client so the leaderboard can rank it, and anything personal on it would be
+ * harvestable in a single query. Email lives in users/{uid}/private/contact.
+ *
+ * The counters are written by the client but every delta is verified by the
+ * security rules against the finished battle it claims to come from.
+ */
 export interface UserDoc {
   username: string;
-  email: string;
   avatar: string | null;
   createdAt: Timestamp | null;
+
+  /** Progression. Absent on documents created before this shipped: read as 0. */
+  wins?: number;
+  losses?: number;
+  draws?: number;
+  xp?: number;
+  coins?: number;
+  totalReps?: number;
+  battlesPlayed?: number;
+  bestScore?: number;
+
+  /**
+   * Set while a finished battle is being credited, cleared when the payout
+   * settles. Its presence is what lets an interrupted credit resume instead of
+   * being lost or paid twice.
+   */
+  pendingBattleId?: string | null;
+
   /**
    * Set BY HAND in the Firestore console; the security rules forbid every
-   * client write path. Absent on normal accounts. Because there are no Cloud
-   * Functions there are no custom claims, so this can never reach
-   * request.auth.token and no rule can act on it — it gates a dev-only UI and
-   * nothing more. See src/app/admin/page.tsx.
+   * client write path. Because there are no Cloud Functions there are no custom
+   * claims, so this can never reach request.auth.token and no rule can act on
+   * it — it gates a dev-only UI and nothing more. See src/app/admin/page.tsx.
    *
    * Typed as a plain string, not the literal 'admin': the value is whatever a
    * human typed into the console, so readers must normalise before comparing.

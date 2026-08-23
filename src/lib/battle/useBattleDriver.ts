@@ -10,6 +10,7 @@ import {
 import { serverNow } from '@/lib/firebase/clock';
 import { HEARTBEAT_MS, FINAL_LATCH_TIMEOUT_MS } from './constants';
 import { bothFinal, canStart, deriveWinner, isStale, slotOf } from './machine';
+import { creditBattle } from '@/lib/firebase/stats';
 import type { BattleWithId } from './types';
 import type { Phase } from './machine';
 
@@ -32,6 +33,7 @@ export function useBattleDriver(
   const startAttemptedRef = useRef(false);
   const finishAttemptedRef = useRef(false);
   const endingSinceRef = useRef<number | null>(null);
+  const creditedRef = useRef<string | null>(null);
 
   // ---- heartbeat ----
   // Presence is what lets the other side detect an abandoned battle, and what
@@ -130,4 +132,20 @@ export function useBattleDriver(
   useEffect(() => {
     if (battle?.status === 'finished') finishAttemptedRef.current = true;
   }, [battle?.status]);
+
+  // ---- progression ----
+  // Credit XP and coins once the result is committed. Each client credits only
+  // itself. Safe to fire on re-entry: the receipt document makes a second
+  // attempt a no-op rather than a double payout.
+  useEffect(() => {
+    if (!battle || !uid || battle.status !== 'finished') return;
+    if (creditedRef.current === battle.id) return;
+    if (!slot) return; // spectators earn nothing
+
+    creditedRef.current = battle.id;
+    void creditBattle(uid, battle.id, battle).catch(() => {
+      // A denial here means the rules refused the claim, which is the system
+      // working. Nothing to retry inline; /compte resumes a stuck claim.
+    });
+  }, [battle, uid, slot]);
 }

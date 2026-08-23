@@ -6,68 +6,85 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
+import { Podium, RankRow } from '@/components/leaderboard/Podium';
+import { LevelRing } from '@/components/profile/LevelRing';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
-import { recentBattles } from '@/lib/firebase/battles';
-import { getExercise } from '@/lib/exercise/registry';
-import type { BattleWithId } from '@/lib/battle/types';
+import { rankOf, topPlayers, type RankedPlayer } from '@/lib/firebase/leaderboard';
 
-function RecentBattles() {
-  const [battles, setBattles] = useState<BattleWithId[] | null>(null);
+/** Podium of the top three, plus where the viewer stands. */
+function TopWorld({ uid }: { uid: string | null }) {
+  const { profile } = useAuth();
+  const [players, setPlayers] = useState<RankedPlayer[] | null>(null);
+  const [myRank, setMyRank] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
-    void recentBattles(5).then((b) => {
-      if (alive) setBattles(b);
+    void topPlayers(10).then((p) => {
+      if (alive) setPlayers(p);
     });
     return () => {
       alive = false;
     };
   }, []);
 
-  if (!battles?.length) return null;
+  useEffect(() => {
+    if (!uid || !profile || !players) return;
+    if (players.some((p) => p.uid === uid)) return;
+    let alive = true;
+    void rankOf(profile.wins ?? 0, profile.battlesPlayed ?? 0).then((r) => {
+      if (alive) setMyRank(r);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [uid, profile, players]);
+
+  // Nothing to celebrate yet: stay quiet rather than show an empty podium.
+  if (!players?.length) return null;
+
+  const onPodium = players.slice(0, 3).find((p) => p.uid === uid);
 
   return (
     <section className="mt-12">
-      <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-ink-400">
-        Derniers battles
-      </h2>
-      <ul className="flex flex-col gap-2">
-        {battles.map((b) => {
-          const ex = getExercise(b.exercise);
-          const draw = b.winner === 'draw';
-          return (
-            <li key={b.id}>
-              <Card className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span aria-hidden className="text-lg">
-                    {ex.emoji}
-                  </span>
-                  <span className="truncate text-sm text-ink-300">{ex.label}</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 tnum">
-                  <span className="text-lg font-black text-volt-500">
-                    {b.player1Score}
-                  </span>
-                  <span className="text-xs text-ink-600">—</span>
-                  <span className="text-lg font-black text-flare-400">
-                    {b.player2Score}
-                  </span>
-                  {draw && (
-                    <span className="ml-1 text-xs font-bold text-ink-400">NUL</span>
-                  )}
-                </div>
-              </Card>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="mb-4 flex items-baseline justify-between">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-ink-400">
+          Top Mondial
+        </h2>
+        <Link
+          href="/classement"
+          className="text-xs font-semibold text-volt-500 hover:underline"
+        >
+          Tout voir →
+        </Link>
+      </div>
+
+      <Podium players={players.slice(0, 3)} />
+
+      {uid && profile && !onPodium && (profile.battlesPlayed ?? 0) > 0 && (
+        <div className="mt-4">
+          <RankRow
+            isSelf
+            player={{
+              uid,
+              username: profile.username,
+              avatar: profile.avatar ?? null,
+              wins: profile.wins ?? 0,
+              losses: profile.losses ?? 0,
+              totalReps: profile.totalReps ?? 0,
+              xp: profile.xp ?? 0,
+              rank:
+                players.find((p) => p.uid === uid)?.rank ?? myRank ?? 0,
+            }}
+          />
+        </div>
+      )}
     </section>
   );
 }
 
 export default function Home() {
-  const { user, username, avatar, loading, signOut } = useAuth();
+  const { user, username, avatar, profile, loading, signOut } = useAuth();
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 
@@ -81,21 +98,33 @@ export default function Home() {
         <Logo className="text-xl" />
         {!loading &&
           (authed ? (
-            <div className="flex items-center gap-2.5">
-              {avatar && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={avatar}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="size-7 rounded-full border border-ink-700 object-cover"
-                />
-              )}
+            <div className="flex items-center gap-3">
+              <Link
+                href="/compte"
+                className="flex items-center gap-2 rounded-full border border-ink-800 py-1 pl-1 pr-3 transition-colors hover:border-ink-600"
+              >
+                {avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={avatar}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="size-7 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="grid size-7 place-items-center rounded-full bg-ink-800 text-xs font-bold text-ink-400">
+                    {(username ?? '?').slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span className="max-w-[7rem] truncate text-sm font-semibold text-ink-200">
+                  {username}
+                </span>
+              </Link>
               <button
                 onClick={() => void signOut()}
                 className="text-sm text-ink-400 transition-colors hover:text-ink-100"
               >
-                Déconnexion
+                Quitter
               </button>
             </div>
           ) : (
@@ -124,10 +153,22 @@ export default function Home() {
           Ta caméra compte les reps. Le meilleur gagne.
         </p>
 
-        {authed && username && (
-          <p className="mt-6 text-sm text-ink-400">
-            Prêt, <span className="font-semibold text-ink-100">{username}</span> ?
-          </p>
+        {authed && profile && (
+          <Link href="/compte" className="mt-6 block">
+            <Card className="flex items-center gap-3 py-3">
+              <LevelRing xp={profile.xp ?? 0} size={52} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold text-ink-100">
+                  {profile.username}
+                </p>
+                <p className="tnum text-xs text-ink-500">
+                  {profile.wins ?? 0} V · {profile.losses ?? 0} D ·{' '}
+                  <span className="text-gold">{profile.coins ?? 0} $SC</span>
+                </p>
+              </div>
+              <span className="shrink-0 text-xs text-ink-600">→</span>
+            </Card>
+          </Link>
         )}
 
         <div className="mt-8">
@@ -141,7 +182,7 @@ export default function Home() {
           </p>
         </div>
 
-        <RecentBattles />
+        <TopWorld uid={user?.uid ?? null} />
       </section>
 
       <footer className="py-6 text-center text-xs text-ink-600">

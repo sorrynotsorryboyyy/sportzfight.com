@@ -250,6 +250,30 @@ export function subscribeBattle(
   );
 }
 
+/**
+ * A player's finished battles, newest first. Powers the account history.
+ * Needs the players+status+endedAt composite index.
+ */
+export async function battleHistory(
+  uid: string,
+  max = 20,
+): Promise<BattleWithId[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        battlesCol(),
+        where('players', 'array-contains', uid),
+        where('status', '==', 'finished'),
+        orderBy('endedAt', 'desc'),
+        limit(max),
+      ),
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as BattleDoc) }));
+  } catch {
+    return [];
+  }
+}
+
 /** Recent finished battles, for the landing page. */
 export async function recentBattles(max = 5): Promise<BattleWithId[]> {
   try {
