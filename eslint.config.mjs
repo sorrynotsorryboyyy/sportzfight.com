@@ -12,7 +12,19 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored MediaPipe WASM glue: generated third-party code, not ours to lint.
+    "public/mediapipe/**",
   ]),
+  {
+    rules: {
+      // Underscore prefix marks an argument that an interface requires but a
+      // particular implementation does not use.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

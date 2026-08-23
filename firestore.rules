@@ -1,0 +1,302 @@
+rules_version = '2';
+
+// ===================================================================
+// SportzFight security rules — the trust boundary.
+//
+// There is no server code (Spark plan, no Cloud Functions), so THESE RULES
+// are the only thing standing between a modified client and a forged result.
+// The design principle: a client may report its OWN effort, but may never
+// assert an outcome. The winner is recomputed here from committed scores.
+//
+// Timing constants mirror src/lib/battle/constants.ts. Keep them in sync.
+// ===================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ---- timing contract (must match src/lib/battle/constants.ts) ----
+    function countdownSecs()  { return 3; }
+    function scoreGraceSecs() { return 2; }
+    function finishSlackSecs(){ return 2; }
+    function staleSecs()      { return 15; }
+    function maxScore()       { return 200; }
+    function maxJump()        { return 40; }
+    function staleLiveSecs()  { return 300; }   // 5 min
+    function abandonWaitSecs(){ return 3600; }  // 1 h
+
+    match /users/{userId} {
+      // Profiles are readable by any signed-in user so a battle can show the
+      // opponent's name and avatar.
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(
+                         ['username', 'email', 'avatar', 'createdAt'])
+                    && request.resource.data.username is string
+                    && request.resource.data.username.size() >= 2
+                    && request.resource.data.username.size() <= 24
+                    && request.resource.data.createdAt == request.time;
+
+      // Only display fields are mutable. Note there are deliberately no
+      // wins/losses counters: a client cannot be trusted to increment its own
+      // record, and without a server we cannot verify one. Aggregates are
+      // computed by querying finished battles instead.
+      allow update: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['username', 'avatar'])
+                    && request.resource.data.username is string
+                    && request.resource.data.username.size() >= 2
+                    && request.resource.data.username.size() <= 24;
+
+      allow delete: if false;
+
+      // Private scratch space for the clock probe.
+      match /clock/{docId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /battles/{battleId} {
+      function d()  { return resource.data; }
+      function n()  { return request.resource.data; }
+      function st() { return resource.data.status; }
+
+      function isP1() {
+        return signedIn() && request.auth.uid == d().player1;
+      }
+      function isP2() {
+        return signedIn() && d().player2 != null
+            && request.auth.uid == d().player2;
+      }
+      function isPlayer() { return isP1() || isP2(); }
+
+      function onlyTouches(allowed) {
+        return n().diff(d()).affectedKeys().hasOnly(allowed);
+      }
+
+      // ---- derived instants, all evaluated against the SERVER clock ----
+      function goInstant() {
+        return d().startedAt + duration.value(countdownSecs(), 's');
+      }
+      function hardEnd() {
+        return goInstant() + duration.value(d().durationSecs, 's');
+      }
+      // Scores accepted from GO until shortly after the hard end, so a final
+      // flush in flight when the timer expires is not lost.
+      function withinScoreWindow() {
+        return d().startedAt != null
+            && request.time >= goInstant() - duration.value(1, 's')
+            && request.time <= hardEnd() + duration.value(scoreGraceSecs(), 's');
+      }
+      function pastHardEnd() {
+        return d().startedAt != null
+            && request.time >= hardEnd() + duration.value(finishSlackSecs(), 's');
+      }
+      function p1Stale() {
+        return d().player1HeartbeatAt == null
+            || request.time > d().player1HeartbeatAt
+                              + duration.value(staleSecs(), 's');
+      }
+
+      // Anyone signed in may read a battle: spectating and joining by code
+      // both require it.
+      allow read: if signedIn();
+
+      // ---------------- CREATE ----------------
+      // The creator is always player1 and starts alone with a zeroed board.
+      allow create: if signedIn()
+        && n().keys().hasAll([
+             'code', 'exercise', 'durationSecs', 'status',
+             'player1', 'player2', 'players',
+             'player1Ready', 'player2Ready',
+             'player1Score', 'player2Score',
+             'player1Final', 'player2Final',
+             'player1Meta', 'player2Meta',
+             'player1HeartbeatAt', 'player2HeartbeatAt',
+             'winner', 'endReason',
+             'createdAt', 'startedAt', 'endedAt'])
+        && n().player1 == request.auth.uid
+        && n().player2 == null
+        && n().players == [request.auth.uid]
+        && n().status == 'waiting'
+        && n().code is string && n().code.size() == 6
+        && n().exercise is string
+        && n().durationSecs is int
+        && n().durationSecs > 0 && n().durationSecs <= 600
+        && n().player1Ready == false && n().player2Ready == false
+        && n().player1Score == 0 && n().player2Score == 0
+        && n().player1Final == false && n().player2Final == false
+        && n().winner == null
+        && n().endReason == null
+        && n().createdAt == request.time
+        && n().startedAt == null
+        && n().endedAt == null;
+
+      // ---------------- JOIN ----------------
+      // Compare-and-swap on player2. Rules are evaluated against the committed
+      // pre-image inside the commit, so two concurrent joiners serialize and
+      // the second sees a non-null player2 and is denied. This ALONE prevents
+      // a third player; the client transaction only buys a clean error message.
+      function validJoin() {
+        return signedIn()
+          && st() == 'waiting'
+          && d().player2 == null
+          && request.auth.uid != d().player1
+          && n().player2 == request.auth.uid
+          && n().players == [d().player1, request.auth.uid]
+          && n().status == 'ready'
+          && onlyTouches(['player2', 'players', 'status', 'player2HeartbeatAt']);
+      }
+
+      // ---------------- READY TOGGLES ----------------
+      function validReady() {
+        return st() in ['waiting', 'ready']
+          && d().startedAt == null
+          && (
+               (isP1() && onlyTouches(['player1Ready', 'player1HeartbeatAt'])
+                       && n().player1Ready is bool)
+            || (isP2() && onlyTouches(['player2Ready', 'player2HeartbeatAt'])
+                       && n().player2Ready is bool)
+             );
+      }
+
+      // ---------------- START ----------------
+      // startedAt is write-once and must be the server's own clock, so a client
+      // can neither backdate nor extend the effort window. Normally only
+      // player1 arms the battle; player2 may take over only once player1's
+      // server-stamped heartbeat has gone stale (captaincy handover). Both
+      // sides of that comparison are server-written, so it cannot be faked.
+      function validStart() {
+        return st() in ['waiting', 'ready']
+          && d().startedAt == null
+          && d().player2 != null
+          && d().player1Ready == true && d().player2Ready == true
+          && n().status == 'live'
+          && n().startedAt == request.time
+          && onlyTouches(['status', 'startedAt',
+                          'player1HeartbeatAt', 'player2HeartbeatAt'])
+          && ( isP1() || (isP2() && p1Stale()) );
+      }
+
+      // ---------------- SCORES ----------------
+      // Monotonic, capped, and rate-limited per write. Monotonicity is exactly
+      // why the manual "-1" correction adjusts a LOCAL count and never writes a
+      // decrease: the client only ever flushes its running maximum.
+      function scoreOk(oldV, newV) {
+        return newV is int
+            && newV >= oldV
+            && newV <= maxScore()
+            && newV - oldV <= maxJump();
+      }
+      // Provenance must add up, so a client cannot claim camera-verified reps
+      // it never produced.
+      function metaOk(meta, total) {
+        return meta.keys().hasOnly(['autoReps', 'manualAdjust', 'source'])
+            && meta.autoReps is int && meta.autoReps >= 0
+            && meta.manualAdjust is int
+            && meta.source in ['camera', 'manual']
+            && meta.autoReps + meta.manualAdjust == total;
+      }
+
+      function validScore() {
+        return st() == 'live'
+          && withinScoreWindow()
+          && (
+               (isP1()
+                 && onlyTouches(['player1Score', 'player1Final',
+                                 'player1Meta', 'player1HeartbeatAt'])
+                 && scoreOk(d().player1Score, n().player1Score)
+                 && n().player1Final is bool
+                 && d().player1Final == false   // the final flush latches once
+                 && metaOk(n().player1Meta, n().player1Score))
+            || (isP2()
+                 && onlyTouches(['player2Score', 'player2Final',
+                                 'player2Meta', 'player2HeartbeatAt'])
+                 && scoreOk(d().player2Score, n().player2Score)
+                 && n().player2Final is bool
+                 && d().player2Final == false
+                 && metaOk(n().player2Meta, n().player2Score))
+             );
+      }
+
+      // ---------------- HEARTBEAT ----------------
+      function validHeartbeat() {
+        return st() in ['waiting', 'ready', 'live']
+          && (
+               (isP1() && onlyTouches(['player1HeartbeatAt'])
+                       && n().player1HeartbeatAt == request.time)
+            || (isP2() && onlyTouches(['player2HeartbeatAt'])
+                       && n().player2HeartbeatAt == request.time)
+             );
+      }
+
+      // ---------------- WINNER ----------------
+      // The client computes the winner for display, but this rule RECOMPUTES it
+      // from the committed scores and rejects any mismatch. Combined with
+      // own-field-only, monotonic, capped scores, the pair (score, winner) is
+      // defensible without a line of server code: a client cannot nominate
+      // itself the winner of a match it lost.
+      function correctWinner() {
+        return d().player1Score > d().player2Score
+                 ? n().winner == d().player1
+             : d().player2Score > d().player1Score
+                 ? n().winner == d().player2
+                 : n().winner == 'draw';
+      }
+
+      // ---------------- FINISH ----------------
+      // Time-gated against the SERVER clock: a client that lies about the time
+      // still cannot end the battle early and freeze a lead.
+      function validFinish() {
+        return st() == 'live'
+          && pastHardEnd()
+          && n().status == 'finished'
+          && n().endedAt == request.time
+          && n().endReason in ['time', 'forfeit']
+          && correctWinner()
+          && onlyTouches(['status', 'endedAt', 'endReason', 'winner'])
+          && (
+               isPlayer()
+               // Long after both players vanished, any signed-in reader may
+               // finalize a stranded battle. Safe precisely because the winner
+               // is recomputed above — a stranger cannot forge the outcome.
+            || request.time > hardEnd() + duration.value(staleLiveSecs(), 's')
+             );
+      }
+
+      // ---------------- CANCEL ----------------
+      // A player may cancel before the battle starts; anyone may reap a battle
+      // abandoned in 'waiting' for an hour.
+      function validCancel() {
+        return st() in ['waiting', 'ready']
+          && d().startedAt == null
+          && n().status == 'cancelled'
+          && onlyTouches(['status', 'endedAt', 'endReason'])
+          && n().endReason == 'abandoned'
+          && n().endedAt == request.time
+          && ( isPlayer()
+            || request.time > d().createdAt
+                              + duration.value(abandonWaitSecs(), 's') );
+      }
+
+      allow update: if signedIn() && (
+           validJoin()
+        || validReady()
+        || validStart()
+        || validScore()
+        || validHeartbeat()
+        || validFinish()
+        || validCancel()
+      );
+
+      // Results are permanent: no rewriting history, no deleting a loss.
+      allow delete: if false;
+    }
+  }
+}
