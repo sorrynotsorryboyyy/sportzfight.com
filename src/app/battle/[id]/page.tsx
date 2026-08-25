@@ -11,7 +11,7 @@ import { SetupNotice } from '@/components/ui/SetupNotice';
 import { Spinner } from '@/components/ui/Spinner';
 import { BattleTimer } from '@/components/battle/BattleTimer';
 import { Countdown } from '@/components/battle/Countdown';
-import { OpponentPanel } from '@/components/battle/OpponentPanel';
+import { OpponentBar } from '@/components/battle/OpponentBar';
 import { PlayerCard } from '@/components/battle/PlayerCard';
 import { ResultScreen } from '@/components/battle/ResultScreen';
 import { CameraStage } from '@/components/camera/CameraStage';
@@ -239,64 +239,68 @@ export default function BattlePage({
       );
     }
 
-    // Split screen. Stacked in portrait (the natural phone grip), side by side
-    // once there is width for it.
+    // The camera fills the screen: during the effort it is the only thing the
+    // athlete looks at. Everything else floats over it — you on top, the
+    // opponent reduced to a bar at the bottom.
     return (
-      <main className="relative flex h-dvh flex-col overflow-hidden sm:flex-row">
+      <main className="relative h-dvh overflow-hidden">
         {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
 
-        {/* --- your half: the live camera --- */}
-        <section className="relative min-h-0 flex-1">
-          <CameraStage
-            variant="fullbleed"
-            videoRef={session.videoRef}
-            landmarks={session.landmarks}
-            result={session.result}
-            status={session.engineStatus}
-            error={session.error}
-            onRetry={() => void startCamera()}
-          />
+        <CameraStage
+          variant="fullbleed"
+          videoRef={session.videoRef}
+          landmarks={session.landmarks}
+          result={session.result}
+          status={session.engineStatus}
+          error={session.error}
+          onRetry={() => void startCamera()}
+        />
 
-          {/* Your score, over the video. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-ink-950/90 to-transparent p-4 pt-12">
-            <div>
-              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
-                Toi · {meName}
+        {/* pointer-events-none throughout: nothing here is interactive, and
+            the pose skeleton underneath must stay visible. */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+          {/* --- top: you, and the clock --- */}
+          <div className="flex items-start justify-between gap-3 bg-gradient-to-b from-ink-950/85 to-transparent p-4 pb-12">
+            <div className="min-w-0">
+              <p className="truncate text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+                {meName}
               </p>
-              <span className="tnum block text-6xl font-black leading-none text-volt-500 sm:text-7xl">
+              <span className="tnum block text-7xl font-black leading-none text-volt-500 sm:text-8xl">
                 {myScore}
               </span>
+              <p className="mt-0.5 text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+                pompes
+              </p>
             </div>
+
+            {/* The clock sits up here rather than centred: dead centre is
+                exactly where the athlete's torso is in frame. */}
+            <div className="shrink-0 scale-75 origin-top-right sm:scale-90">
+              <BattleTimer
+                secondsLeft={view.secondsLeft}
+                progress={view.progress}
+                approximate={view.clockDegraded}
+              />
+            </div>
+          </div>
+
+          {/* --- bottom: form feedback, then the opponent --- */}
+          <div className="flex flex-col gap-2 bg-gradient-to-t from-ink-950/85 to-transparent p-4 pt-12">
             {repNote && (
-              <span className="mb-1 rounded-full bg-gold/95 px-2.5 py-1 text-xs font-bold text-ink-950">
+              <span className="self-center rounded-full bg-gold/95 px-3 py-1 text-xs font-bold text-ink-950">
                 {FORM_MESSAGES[repNote]}
               </span>
             )}
-          </div>
-        </section>
 
-        {/* --- the timer, on the divider: it belongs to neither side --- */}
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">
-          <div className="scale-75 rounded-full bg-ink-950/80 p-1 backdrop-blur sm:scale-90">
-            <BattleTimer
-              secondsLeft={view.secondsLeft}
-              progress={view.progress}
-              approximate={view.clockDegraded}
+            <OpponentBar
+              name={oppName}
+              avatar={oppAvatar}
+              score={oppScore}
+              connected={opponentConnected}
+              waiting={!battle.player2}
             />
           </div>
         </div>
-
-        {/* --- opponent half --- */}
-        <section className="min-h-0 flex-1 border-t border-ink-800 sm:border-l sm:border-t-0">
-          <OpponentPanel
-            name={oppName}
-            avatar={oppAvatar}
-            score={oppScore}
-            connected={opponentConnected}
-            exerciseLabel={exercise.label}
-            waiting={!battle.player2}
-          />
-        </section>
 
         {view.phase === 'ending' && (
           <div className="absolute inset-x-0 bottom-0 z-40 bg-ink-950/95 p-4 text-center text-sm text-ink-300">
@@ -352,9 +356,10 @@ export default function BattlePage({
       {/* Everything below floats over the video. pointer-events-none on the
           scrims so only the actual controls are clickable. */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-        {/* top: identity + both players */}
-        <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-10">
-          <div className="pointer-events-auto mb-3 flex items-center justify-between">
+        {/* top: you only. Same hierarchy as the in-play screen, so the two
+            phases read as one continuous experience. */}
+        <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-12">
+          <div className="pointer-events-auto mb-4 flex items-center justify-between">
             <Link href="/">
               <Logo className="text-lg" />
             </Link>
@@ -363,28 +368,12 @@ export default function BattlePage({
             </span>
           </div>
 
-          <div className="flex items-stretch gap-2">
-            <PlayerCard
-              name={p1Name}
-              score={0}
-              isSelf={slot === 1}
-              slot={1}
-              compact
-              ready={battle.player1Ready}
-              connected={!isStale(battle, 1, serverNow())}
-            />
-            <PlayerCard
-              name={p2Name}
-              score={0}
-              isSelf={slot === 2}
-              slot={2}
-              compact
-              ready={battle.player2Ready}
-              connected={
-                !!battle.player2 && !isStale(battle, 2, serverNow())
-              }
-            />
-          </div>
+          <p className="truncate text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+            {meName}
+          </p>
+          <p className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-ink-100">
+            {myReady ? 'Prêt' : 'En position'}
+          </p>
         </div>
 
         {/* bottom: setup hint + the ready control, in the thumb zone */}
@@ -404,6 +393,15 @@ export default function BattlePage({
             </div>
           ) : (
             <div className="pointer-events-auto flex flex-col gap-3">
+              {/* No score yet, so the bar shows readiness instead. Without it
+                  the wait is opaque: you cannot tell whether the opponent is
+                  still there or has walked away. */}
+              <OpponentBar
+                name={oppName}
+                avatar={oppAvatar}
+                connected={opponentConnected}
+                ready={slot === 1 ? battle.player2Ready : battle.player1Ready}
+              />
               <p className="text-center text-xs leading-relaxed text-ink-400">
                 {exercise.setupHint}
               </p>
