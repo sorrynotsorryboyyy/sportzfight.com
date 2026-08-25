@@ -6,6 +6,14 @@ automatiquement par la caméra, directement dans le navigateur.
 > Connexion Google → Rechercher un battle → Matchmaking aléatoire → Caméra →
 > 3·2·1·GO → 60 secondes → Comptage → Résultat → Victoire
 
+## Documentation
+
+Le détail vit dans [`docs/`](docs/) :
+[recette avant lancement](docs/TESTING.md) ·
+[architecture](docs/ARCHITECTURE.md) ·
+[sécurité](docs/SECURITY.md) ·
+[exploitation](docs/OPERATIONS.md).
+
 ## Stack
 
 Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Firebase 12
@@ -64,11 +72,11 @@ main : `npm run setup:mediapipe`.
 ## Tests
 
 ```bash
-npm run test        # logique pure : machine à états, détecteur, XP, pseudos (76)
+npm run test        # logique pure : machine à états, détecteur, XP, pseudos, contrat (98)
 npm run test:rules  # règles de sécurité contre l'émulateur (101)
 npm run test:mm     # courses de matchmaking, 2 et 4 joueurs simultanés (5)
 npm run test:e2e    # parcours complet, vraie bataille de 60 s (9)
-npm run test:all    # tout (196), émulateurs lancés automatiquement
+npm run test:all    # tout (217), émulateurs lancés automatiquement
 npm run lint && npm run typecheck
 ```
 

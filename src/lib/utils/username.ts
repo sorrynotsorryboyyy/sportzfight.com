@@ -83,8 +83,6 @@ export function validateUsername(name: string): UsernameProblem | null {
   return null;
 }
 
-export const isValidUsername = (name: string) => validateUsername(name) === null;
-
 /**
  * True when a stored username predates the charset rule and must be replaced.
  * Drives the forced-rename flow for accounts seeded from a Google display name.

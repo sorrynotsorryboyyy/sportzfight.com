@@ -103,7 +103,13 @@ export default function BattlePage({
     write,
   });
 
-  const { start: startCamera, stop: stopCamera, finalize } = session;
+  const {
+    start: startCamera,
+    stop: stopCamera,
+    finalize,
+    engineStatus,
+    error: engineError,
+  } = session;
 
   const isSpectator = slot === null;
   const finished = view.phase === 'finished' || battle?.status === 'finished';
@@ -124,6 +130,18 @@ export default function BattlePage({
     finalizedRef.current = true;
     void finalize().finally(() => stopCamera());
   }, [view.phase, slot, finalize, stopCamera]);
+
+  // A player who armed and then lost the camera must be un-armed, or the
+  // battle starts anyway and they score zero. Only while still in the lobby:
+  // once live, the camera dropping is a problem to survive, not to rewind.
+  useEffect(() => {
+    if (!battle || !slot) return;
+    if (battle.status !== 'waiting' && battle.status !== 'ready') return;
+    if (!readyOf(battle, slot)) return;
+    if (engineStatus === 'running' && !engineError) return;
+
+    void setReady(battle.id, slot, false).catch(() => {});
+  }, [battle, slot, engineStatus, engineError]);
 
   const opponentSlot: PlayerSlot = slot === 1 ? 2 : 1;
   const opponentConnected = useMemo(() => {
@@ -165,6 +183,12 @@ export default function BattlePage({
   const oppAvatar = (slot === 2 ? p1?.avatar : p2?.avatar) ?? null;
 
   const myReady = slot ? readyOf(battle, slot) : false;
+
+  // The camera is mandatory: declaring yourself ready without one guarantees a
+  // score of zero, which is exactly what happened when testing on a laptop with
+  // no webcam. Spectators are exempt — they never arm anything.
+  const cameraReady =
+    isSpectator || (engineStatus === 'running' && !engineError);
 
   // ---------- finished ----------
   if (finished) {
@@ -403,15 +427,20 @@ export default function BattlePage({
                 ready={slot === 1 ? battle.player2Ready : battle.player1Ready}
               />
               <p className="text-center text-xs leading-relaxed text-ink-400">
-                {exercise.setupHint}
+                {cameraReady ? exercise.setupHint : 'La caméra doit être active pour lancer un battle.'}
               </p>
               <Button
                 size="xl"
                 variant={myReady ? 'secondary' : 'primary'}
+                disabled={!cameraReady && !myReady}
                 onClick={() => slot && void setReady(battle.id, slot, !myReady)}
-                className={!myReady ? 'animate-pulse-ring' : undefined}
+                className={!myReady && cameraReady ? 'animate-pulse-ring' : undefined}
               >
-                {myReady ? 'ANNULER' : 'JE SUIS PRÊT'}
+                {myReady
+                  ? 'ANNULER'
+                  : cameraReady
+                    ? 'JE SUIS PRÊT'
+                    : 'CAMÉRA REQUISE'}
               </Button>
               {myReady && (
                 <p className="text-center text-sm text-ink-400">

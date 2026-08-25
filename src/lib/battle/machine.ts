@@ -1,6 +1,5 @@
 import type { BattleDoc, PlayerSlot } from './types';
 import {
-  COUNTDOWN_MS,
   goInstantMs,
   hardEndMs,
   STALE_MS,
@@ -101,17 +100,8 @@ export function slotOf(doc: BattleDoc, uid: string | null): PlayerSlot | null {
   return null;
 }
 
-export const scoreOf = (doc: BattleDoc, slot: PlayerSlot) =>
-  slot === 1 ? doc.player1Score : doc.player2Score;
-
 export const readyOf = (doc: BattleDoc, slot: PlayerSlot) =>
   slot === 1 ? doc.player1Ready : doc.player2Ready;
-
-export const finalOf = (doc: BattleDoc, slot: PlayerSlot) =>
-  slot === 1 ? doc.player1Final : doc.player2Final;
-
-export const uidOf = (doc: BattleDoc, slot: PlayerSlot) =>
-  slot === 1 ? doc.player1 : doc.player2;
 
 /** Both players have committed their last rep (or we timed out waiting). */
 export const bothFinal = (doc: BattleDoc) => doc.player1Final && doc.player2Final;
@@ -151,6 +141,3 @@ export function canStart(doc: BattleDoc): boolean {
     (doc.status === 'ready' || doc.status === 'waiting')
   );
 }
-
-/** Countdown length, exported for UI copy. */
-export const countdownSeconds = COUNTDOWN_MS / 1000;

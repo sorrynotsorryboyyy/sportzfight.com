@@ -10,7 +10,7 @@ const MEDAL = [
   { ring: 'ring-[#cd7f32]', text: 'text-[#cd7f32]', glow: 'bg-[#cd7f32]/10', label: '3' },
 ] as const;
 
-export function medalFor(rank: number) {
+function medalFor(rank: number) {
   return rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
 }
 

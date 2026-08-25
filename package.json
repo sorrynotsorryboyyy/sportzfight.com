@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "emu": "firebase emulators:start --only firestore,auth --project demo-sportzfight",
-    "test": "vitest run tests/machine.test.ts tests/pushup.test.ts tests/scoresync.test.ts",
+    "test": "vitest run tests/machine.test.ts tests/pushup.test.ts tests/scoresync.test.ts tests/progression.test.ts tests/role.test.ts tests/contract.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project demo-sportzfight \"vitest run tests/rules.test.ts\"",
     "test:e2e": "vitest run tests/e2e-flow.test.ts",
     "test:all": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run\"",

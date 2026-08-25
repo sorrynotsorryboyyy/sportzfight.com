@@ -3,7 +3,6 @@
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -93,12 +92,6 @@ export async function createBattle(
   });
 
   return ref.id;
-}
-
-export async function getBattle(id: string): Promise<BattleWithId | null> {
-  const snap = await getDoc(battleRef(id));
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as BattleDoc) };
 }
 
 /**
@@ -270,24 +263,6 @@ export async function battleHistory(
     );
     return snap.docs.map((d) => ({ id: d.id, ...(d.data() as BattleDoc) }));
   } catch {
-    return [];
-  }
-}
-
-/** Recent finished battles, for the landing page. */
-export async function recentBattles(max = 5): Promise<BattleWithId[]> {
-  try {
-    const snap = await getDocs(
-      query(
-        battlesCol(),
-        where('status', '==', 'finished'),
-        orderBy('endedAt', 'desc'),
-        limit(max),
-      ),
-    );
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as BattleDoc) }));
-  } catch {
-    // Missing index or offline — the landing page treats this as "nothing yet".
     return [];
   }
 }

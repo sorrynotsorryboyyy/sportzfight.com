@@ -105,6 +105,7 @@ export class PoseEngine {
   private vfcId: number | null = null;
   private lastDetectMs = 0;
   private lastTimestamp = -1;
+  private detachPlayListeners: (() => void) | null = null;
 
   private status: EngineStatus = 'idle';
 
@@ -204,11 +205,23 @@ export class PoseEngine {
     video.muted = true;
     video.playsInline = true;
 
-    try {
-      await video.play();
-    } catch {
-      // Autoplay can be refused; the loop tolerates a not-yet-playing video.
-    }
+    // Playback has to be (re)started rather than assumed. A single play() at
+    // attach time is not enough: if the element is not ready yet, or React
+    // remounts it, the video silently never plays — and the symptom is
+    // baffling, because detection reads the MediaStream directly and keeps
+    // drawing the skeleton over a black rectangle.
+    const tryPlay = () => {
+      video.play().catch(() => {
+        /* a rejected play is retried on the next metadata/canplay event */
+      });
+    };
+    video.addEventListener('loadedmetadata', tryPlay);
+    video.addEventListener('canplay', tryPlay);
+    this.detachPlayListeners = () => {
+      video.removeEventListener('loadedmetadata', tryPlay);
+      video.removeEventListener('canplay', tryPlay);
+    };
+    tryPlay();
 
     this.running = true;
     this.setStatus('running');
@@ -284,6 +297,9 @@ export class PoseEngine {
       v.cancelVideoFrameCallback(this.vfcId);
       this.vfcId = null;
     }
+
+    this.detachPlayListeners?.();
+    this.detachPlayListeners = null;
 
     // Releasing every track is what turns the camera indicator light off.
     this.stream?.getTracks().forEach((t) => t.stop());

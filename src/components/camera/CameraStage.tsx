@@ -61,6 +61,12 @@ export function CameraStage({
     >
       <video
         ref={videoRef}
+        // autoPlay matters: PoseEngine also calls play(), but if the element is
+        // not ready when the stream attaches, that single call is lost and the
+        // video never starts — while detection keeps drawing the skeleton over
+        // a black rectangle, which looks like a rendering bug rather than a
+        // playback one.
+        autoPlay
         playsInline
         muted
         // Mirrored so moving left on screen matches moving left in reality.

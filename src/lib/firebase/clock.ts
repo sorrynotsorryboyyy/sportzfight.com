@@ -61,10 +61,6 @@ export function freezeClock(): void {
   frozen = { anchorPerf: performance.now(), anchorServerMs: Date.now() + offsetMs };
 }
 
-export function unfreezeClock(): void {
-  frozen = null;
-}
-
 function applySample(sampleOffset: number, halfRtt: number, weight = 1): void {
   if (!Number.isFinite(sampleOffset) || Math.abs(sampleOffset) > SANITY_MS) {
     degraded = true;

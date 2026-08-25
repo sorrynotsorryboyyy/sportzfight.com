@@ -160,11 +160,3 @@ export async function ensureProfile(user: {
 
   throw new UsernameError('taken', 'Impossible de réserver un pseudo.');
 }
-
-/** Claim a lock for a legacy account that has a username but no lock yet. */
-export async function claimLegacyUsername(
-  uid: string,
-  next: string,
-): Promise<void> {
-  await changeUsername(uid, next, null);
-}

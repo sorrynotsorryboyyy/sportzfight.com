@@ -58,6 +58,3 @@ export function levelProgress(xp: number): LevelProgress {
     progress: xpForLevel > 0 ? Math.min(1, xpIntoLevel / xpForLevel) : 0,
   };
 }
-
-/** Short label for the level badge. */
-export const levelLabel = (xp: number) => `NIV. ${levelFor(xp)}`;
