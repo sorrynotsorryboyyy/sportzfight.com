@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Logo } from '@/components/ui/Logo';
@@ -12,16 +12,23 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { findOrCreateBattle } from '@/lib/firebase/matchmaking';
 import { getExercise, DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 
-export default function MatchmakingPage() {
+function Matchmaking() {
   const { user, loading } = useRequireAuth();
   const { needsUsernameFix, profile } = useAuth();
   const router = useRouter();
+  const params = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   // Guards React StrictMode's double-invoked effects, which would otherwise
   // post two battles into the pool on every visit in development.
   const startedRef = useRef(false);
 
-  const exercise = getExercise(DEFAULT_EXERCISE);
+  // The mode comes from the hub's grid. getExercise() falls back to pushups on
+  // an unknown id, and an unreleased exercise is refused outright — otherwise a
+  // hand-typed ?exercise= would drop the player into a queue nobody can join,
+  // because scanCandidates filters on this exact value.
+  const requested = params.get('exercise');
+  const picked = getExercise(requested ?? DEFAULT_EXERCISE);
+  const exercise = picked.available ? picked : getExercise(DEFAULT_EXERCISE);
 
   useEffect(() => {
     if (!user || startedRef.current) return;
@@ -37,13 +44,13 @@ export default function MatchmakingPage() {
 
     startedRef.current = true;
 
-    void findOrCreateBattle(user.uid)
+    void findOrCreateBattle(user.uid, exercise.id)
       .then(({ id }) => router.replace(`/battle/${id}`))
       .catch(() => {
         setError('Impossible de trouver un adversaire. Vérifie ta connexion.');
         startedRef.current = false;
       });
-  }, [user, router, needsUsernameFix, profile]);
+  }, [user, router, needsUsernameFix, profile, exercise.id]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 
@@ -94,5 +101,23 @@ export default function MatchmakingPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * useSearchParams needs a Suspense boundary in the app router, so the page
+ * itself is a thin shell around the real component.
+ */
+export default function MatchmakingPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-dvh place-items-center p-6">
+          <span className="size-8 animate-spin rounded-full border-2 border-ink-700 border-t-volt-500" />
+        </main>
+      }
+    >
+      <Matchmaking />
+    </Suspense>
   );
 }
