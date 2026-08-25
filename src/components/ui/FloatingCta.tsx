@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
+import { cn } from '@/lib/utils/cn';
 import { useAuth } from '@/lib/firebase/auth-context';
 
 /**
@@ -17,8 +18,12 @@ import { useAuth } from '@/lib/firebase/auth-context';
  */
 export function FloatingCta({
   label = 'RECHERCHER UN BATTLE',
+  className,
 }: {
   label?: string;
+  /** Lets the landing hide it on desktop, where a fixed bottom bar reads as a
+   *  mis-ported app rather than a website. */
+  className?: string;
 }) {
   const { user, needsUsernameFix } = useAuth();
 
@@ -35,7 +40,10 @@ export function FloatingCta({
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pt-10"
+      className={cn(
+        'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pt-10',
+        className,
+      )}
       // Clear the iOS home indicator without eating space on other devices.
       style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
     >

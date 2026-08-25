@@ -30,7 +30,10 @@ export default function Home() {
     return (
       <>
         <Landing />
-        <FloatingCta label="COMMENCER" />
+        {/* Mobile only: the landing has its own CTAs and a sticky nav, and a
+            bar pinned to the bottom of a wide screen looks like a phone app
+            stretched onto a desktop. */}
+        <FloatingCta label="COMMENCER" className="md:hidden" />
       </>
     );
   }
