@@ -149,11 +149,15 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
 
 export function PartnersPanel() {
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [unconfigured, setUnconfigured] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(() => {
     void apiGet<{ partners: Row[] }>('/api/admin/partners').then((r) => {
+      // Without the Admin SDK an empty table would read as "no partners yet",
+      // which is a different and much more misleading statement.
+      setUnconfigured(r.error === 'admin_unconfigured');
       setRows(r.ok && r.data ? r.data.partners : []);
     });
   }, []);
@@ -185,6 +189,20 @@ export function PartnersPanel() {
   };
 
   if (!rows) return <Spinner label="Chargement des partenaires…" />;
+
+  if (unconfigured) {
+    return (
+      <Card className="border-cyan-glow/25 bg-cyan-glow/5">
+        <p className="text-sm font-bold text-cyan-glow">
+          Le serveur n’est pas configuré
+        </p>
+        <p className="mt-1.5 text-xs leading-relaxed text-ink-300">
+          Les partenaires ont besoin du SDK Admin Firebase. Renseigne{' '}
+          <code>FIREBASE_SERVICE_ACCOUNT</code> et redémarre le serveur.
+        </p>
+      </Card>
+    );
+  }
 
   const columns: readonly Column<Row>[] = [
     {

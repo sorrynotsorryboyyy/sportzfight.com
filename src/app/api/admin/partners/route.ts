@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb, requireAdmin } from '@/lib/server/firebase-admin';
+import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
 import {
   defaultRates,
   isValidCode,
@@ -20,8 +20,8 @@ const KINDS: PartnerKind[] = ['gym', 'coach'];
 
 /** Everything the admin dashboard shows about one partner. */
 export async function GET(req: Request) {
-  const admin = await requireAdmin(req);
-  if (!admin) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const check = await checkAdmin(req);
+  if (!check.ok) return adminDenial(check);
 
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });
@@ -80,8 +80,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const admin = await requireAdmin(req);
-  if (!admin) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const check = await checkAdmin(req);
+  if (!check.ok) return adminDenial(check);
 
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });
@@ -143,8 +143,8 @@ export async function POST(req: Request) {
 
 /** Edit rates, details, or deactivate. The code itself is immutable. */
 export async function PATCH(req: Request) {
-  const admin = await requireAdmin(req);
-  if (!admin) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const check = await checkAdmin(req);
+  if (!check.ok) return adminDenial(check);
 
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });

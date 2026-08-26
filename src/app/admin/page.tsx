@@ -84,13 +84,38 @@ function Overview() {
   const load = useCallback(() => {
     void apiGet<Stats>('/api/admin/stats').then((r) => {
       if (r.ok && r.data) setStats(r.data);
-      // 403 here means the server disagrees with the client-side gate — worth
-      // saying out loud rather than showing an empty dashboard.
-      else setError(r.status === 403 ? 'forbidden' : (r.error ?? 'failed'));
+      else setError(r.error ?? 'failed');
     });
   }, []);
 
   useEffect(load, [load]);
+
+  // Not configured is NOT a refusal. Saying "accès refusé" here sent the
+  // operator hunting for a role that was perfectly correct.
+  if (error === 'admin_unconfigured') {
+    return (
+      <Card className="border-cyan-glow/25 bg-cyan-glow/5">
+        <p className="text-sm font-bold text-cyan-glow">
+          Le serveur n’est pas configuré
+        </p>
+        <p className="mt-1.5 text-xs leading-relaxed text-ink-300">
+          Ton rôle admin est bon — il n’a simplement pas pu être vérifié. Les
+          routes <code>/api/admin</code> ont besoin du SDK Admin Firebase, donc
+          de la variable d’environnement{' '}
+          <code>FIREBASE_SERVICE_ACCOUNT</code>, qui est absente.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-400">
+          Console Firebase → Paramètres du projet → Comptes de service →
+          Générer une clé privée. Colle le JSON entier sur une seule ligne dans{' '}
+          <code>.env.local</code> (et dans Vercel pour la production), puis
+          redémarre le serveur.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-500">
+          L’onglet Détecteur fonctionne sans cette configuration.
+        </p>
+      </Card>
+    );
+  }
 
   if (error === 'forbidden') {
     return (
@@ -100,6 +125,16 @@ function Overview() {
           Le rôle admin n’est pas reconnu par l’API. Vérifie que le champ{' '}
           <code>role</code> de ton document utilisateur vaut exactement{' '}
           <code>admin</code>.
+        </p>
+      </Card>
+    );
+  }
+
+  if (error === 'unauthenticated') {
+    return (
+      <Card className="border-flare-500/30 bg-flare-500/5">
+        <p className="text-sm text-flare-400">
+          Session expirée. Recharge la page pour te reconnecter.
         </p>
       </Card>
     );

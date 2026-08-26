@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb, requireAdmin } from '@/lib/server/firebase-admin';
+import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
 
 /**
  * Mark a partner's outstanding commission as transferred.
@@ -16,8 +16,8 @@ import { adminDb, requireAdmin } from '@/lib/server/firebase-admin';
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
-  const admin = await requireAdmin(req);
-  if (!admin) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const check = await checkAdmin(req);
+  if (!check.ok) return adminDenial(check);
 
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const batch = db.batch();
     for (const doc of pending.docs) {
       totalCents += (doc.get('commissionCents') as number) ?? 0;
-      batch.update(doc.ref, { commissionPaidAt: now, paidBy: admin });
+      batch.update(doc.ref, { commissionPaidAt: now, paidBy: check.uid });
     }
     await batch.commit();
 

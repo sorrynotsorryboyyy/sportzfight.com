@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb, requireAdmin } from '@/lib/server/firebase-admin';
+import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
 
 /**
  * Dashboard totals.
@@ -14,10 +14,8 @@ import { adminDb, requireAdmin } from '@/lib/server/firebase-admin';
 export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
-  const admin = await requireAdmin(req);
-  // 403, not 401: the caller is authenticated, just not allowed. And no detail
-  // about why — an error message is a probe.
-  if (!admin) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const check = await checkAdmin(req);
+  if (!check.ok) return adminDenial(check);
 
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });
