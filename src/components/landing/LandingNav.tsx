@@ -1,46 +1,25 @@
-'use client';
-
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { Logo } from '@/components/ui/Logo';
-import { cn } from '@/lib/utils/cn';
 
 /**
  * The landing's top bar.
  *
- * Sticky rather than static: it keeps the sign-in action reachable at any
- * scroll depth, which is what lets the mobile floating button stand down on
- * desktop instead of hovering over a 1440px page like a mis-ported app.
+ * The page is a single fold now, so this no longer tracks scroll position: it
+ * simply sits at the top with a permanent hairline. The old "transparent until
+ * scrolled" treatment existed for a long page and could never trigger here.
  *
- * The blurred background only appears once scrolled — over the hero it would
- * be a horizontal line across an otherwise full-bleed image.
+ * The links point at real pages rather than anchors — the sections they used to
+ * jump to are gone.
  */
 
 const LINKS = [
-  { href: '#comment', label: 'Comment ça marche' },
-  { href: '#classement', label: 'Classement' },
+  { href: '/classement', label: 'Classement' },
   { href: '/boutique', label: 'Boutique' },
 ] as const;
 
 export function LandingNav() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
   return (
-    <header
-      className={cn(
-        'sticky top-0 z-50 transition-colors duration-300',
-        scrolled
-          ? 'border-b border-ink-800/80 bg-ink-950/85 backdrop-blur'
-          : 'border-b border-transparent',
-      )}
-    >
+    <header className="shrink-0 border-b border-ink-800/60">
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
         <Link href="/" aria-label="SportzFight, accueil">
           <Logo className="text-xl" />
@@ -49,13 +28,13 @@ export function LandingNav() {
         {/* Two links do not justify a burger menu; they simply hide on mobile. */}
         <div className="hidden items-center gap-7 md:flex">
           {LINKS.map((l) => (
-            <a
+            <Link
               key={l.href}
               href={l.href}
               className="text-sm font-medium text-ink-300 transition-colors hover:text-ink-100"
             >
               {l.label}
-            </a>
+            </Link>
           ))}
         </div>
 
