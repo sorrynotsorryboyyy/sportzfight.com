@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
@@ -10,7 +10,10 @@ import { BottomNav } from '@/components/ui/BottomNav';
 import { Footer } from '@/components/ui/Footer';
 import { Tabs } from '@/components/ui/Tabs';
 import { ProductCard } from '@/components/shop/ProductCard';
+import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { startCheckout } from '@/lib/firebase/billing';
+import { activePlan } from '@/lib/subscription';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import {
   categoryFrom,
@@ -103,12 +106,46 @@ function Check({ accent }: { accent: 'volt' | 'gold' }) {
   );
 }
 
-function PlanCard({ plan }: { plan: Plan }) {
+function PlanCard({
+  plan,
+  payments,
+  current,
+}: {
+  plan: Plan;
+  /** Whether the server is configured to take a payment at all. */
+  payments: boolean;
+  /** The plan this account already has, if any. */
+  current: string | null;
+}) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const mine = current === plan.id;
+
+  const subscribe = async () => {
+    // Signing in first, so the checkout is opened for a verified account.
+    if (!user) {
+      router.push('/login?next=/boutique');
+      return;
+    }
+    setBusy(true);
+    const url = await startCheckout(plan.id);
+    if (url) {
+      window.location.href = url;
+      return;
+    }
+    setBusy(false);
+  };
+
   return (
     <Card
       className={cn(
         'relative flex flex-col',
-        plan.highlight ? 'border-volt-500/50' : 'border-ink-800',
+        mine
+          ? 'border-volt-500'
+          : plan.highlight
+            ? 'border-volt-500/50'
+            : 'border-ink-800',
       )}
     >
       {plan.highlight && (
@@ -144,15 +181,24 @@ function PlanCard({ plan }: { plan: Plan }) {
         ))}
       </ul>
 
-      {/* Disabled on purpose, and worded so nobody can mistake this for a
-          completed purchase. */}
-      <button
-        type="button"
-        disabled
-        className="mt-6 h-12 w-full cursor-not-allowed rounded-xl border border-ink-700 bg-ink-850 text-sm font-bold uppercase tracking-widest text-ink-500"
-      >
-        Bientôt disponible
-      </button>
+      {mine ? (
+        <p className="mt-6 grid h-12 w-full place-items-center rounded-xl border border-volt-500/40 bg-volt-500/10 text-sm font-bold uppercase tracking-widest text-volt-500">
+          Ton abonnement
+        </p>
+      ) : payments ? (
+        <Button size="md" className="mt-6" loading={busy} onClick={subscribe}>
+          S’abonner
+        </Button>
+      ) : (
+        // Worded so nobody can mistake this for a completed purchase.
+        <button
+          type="button"
+          disabled
+          className="mt-6 h-12 w-full cursor-not-allowed rounded-xl border border-ink-700 bg-ink-850 text-sm font-bold uppercase tracking-widest text-ink-500"
+        >
+          Bientôt disponible
+        </button>
+      )}
     </Card>
   );
 }
@@ -183,6 +229,25 @@ function Shop() {
   const { user, profile } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
+
+  // Whether a payment can be taken depends on server-side secrets, so only the
+  // server can answer. Until it does, the cards stay in their "Bientôt" state —
+  // the honest default if the request never lands.
+  const [payments, setPayments] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void fetch('/api/config')
+      .then((r) => r.json())
+      .then((d: { payments?: boolean }) => {
+        if (alive) setPayments(Boolean(d.payments));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const current = activePlan(profile?.subscription);
 
   // The open tab lives in the URL, following the matchmaking convention: it
   // survives a reload, it is shareable, and the back button works. An unknown
@@ -229,10 +294,14 @@ function Shop() {
         />
 
         <Card className="border-cyan-glow/25 bg-cyan-glow/5">
-          <p className="text-sm font-bold text-cyan-glow">Bientôt ouvert</p>
+          <p className="text-sm font-bold text-cyan-glow">
+            {payments ? 'Bon à savoir' : 'Bientôt ouvert'}
+          </p>
           <p className="mt-1.5 text-sm leading-relaxed text-ink-300">
-            Rien n’est encore achetable — la boutique est là pour te donner un
-            aperçu. Les modes au-delà des pompes et des squats sont encore en
+            {payments
+              ? 'Les abonnements sont mensuels, sans engagement, résiliables à tout moment depuis ton compte. Le merch et les objets ne sont pas encore expédiables.'
+              : 'Rien n’est encore achetable — la boutique est là pour te donner un aperçu.'}{' '}
+            Les modes au-delà des pompes et des squats sont encore en
             développement : le Soutien te les ouvrira le jour de leur sortie.
           </p>
         </Card>
@@ -240,7 +309,12 @@ function Shop() {
         {active === 'abonnements' ? (
           <div className="flex flex-col gap-5">
             {PLANS.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} />
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                payments={payments}
+                current={current}
+              />
             ))}
           </div>
         ) : (

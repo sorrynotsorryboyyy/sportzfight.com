@@ -1,5 +1,6 @@
 'use client';
 
+import { PlanBadge } from '@/components/profile/PlanBadge';
 import { cn } from '@/lib/utils/cn';
 import type { RankedPlayer } from '@/lib/firebase/leaderboard';
 
@@ -133,10 +134,15 @@ export function RankRow({
 
       <Avatar src={player.avatar} name={player.username} size={32} />
 
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-100">
-        {player.username}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="truncate text-sm font-semibold text-ink-100">
+          {player.username}
+        </span>
+        {/* A label, never an advantage: it says who supports the project and
+            changes nothing about the ranking it sits in. */}
+        <PlanBadge subscription={player.subscription} />
         {isSelf && (
-          <span className="ml-1.5 text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+          <span className="shrink-0 text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
             toi
           </span>
         )}

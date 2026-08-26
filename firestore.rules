@@ -234,7 +234,12 @@ service cloud.firestore {
       }
 
       allow update: if isSelf()
-                    && !touched().hasAny(['role', 'email', 'level', 'createdAt'])
+                    // subscription joins role here: written ONLY by the
+                    // Stripe webhook through the Admin SDK, which bypasses
+                    // rules. No client path may touch it, so no client can
+                    // grant itself a paid plan or extend one.
+                    && !touched().hasAny(['role', 'email', 'level', 'createdAt',
+                                          'subscription'])
                     && (
                          validProfileUpdate()
                       || validClaim()

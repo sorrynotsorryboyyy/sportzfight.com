@@ -1779,3 +1779,148 @@ describe('daily bonus - the streak cannot be forged', () => {
     await assertFails(getDoc(doc(dbOf(P2), 'users', P1, 'dailyBonus', '1')));
   });
 });
+
+describe('subscription - only the webhook can grant a paid plan', () => {
+  /**
+   * `subscription` is written exclusively by the Stripe webhook through the
+   * Admin SDK, which bypasses rules by design. So the rules' job here is
+   * absolute: NO client path may touch the field, on any branch.
+   *
+   * If any of these passed, anyone could give themselves Premium for free —
+   * and, worse, could extend it indefinitely without ever paying.
+   */
+  const FINISHED = 3 + 60 + 5;
+
+  const paid = (over = {}) => ({
+    plan: 'premium',
+    status: 'active',
+    currentPeriodEnd: { seconds: Math.floor(Date.now() / 1000) + 86_400 },
+    ...over,
+  });
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    xp: 0,
+    coins: 0,
+    totalReps: 0,
+    battlesPlayed: 0,
+    bestScore: 0,
+    ...over,
+  });
+
+  it('REFUSES granting oneself a subscription', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { subscription: paid() }),
+    );
+  });
+
+  it('REFUSES smuggling one alongside a legitimate profile edit', async () => {
+    // The profile branch is the widest client-writable path, so it is the most
+    // tempting carrier.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        username: 'Balboa',
+        subscription: paid(),
+      }),
+    );
+  });
+
+  it('REFUSES extending an existing subscription', async () => {
+    // Having paid once must not allow renewing for free.
+    await consoleWrite('users/' + P1, profile({ subscription: paid() }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        subscription: paid({
+          currentPeriodEnd: { seconds: Math.floor(Date.now() / 1000) + 31_536_000 },
+        }),
+      }),
+    );
+  });
+
+  it('REFUSES upgrading the plan without paying', async () => {
+    await consoleWrite('users/' + P1, profile({ subscription: paid() }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        subscription: paid({ plan: 'soutien' }),
+      }),
+    );
+  });
+
+  it('REFUSES reviving an expired subscription', async () => {
+    await consoleWrite(
+      'users/' + P1,
+      profile({
+        subscription: paid({
+          status: 'canceled',
+          currentPeriodEnd: { seconds: Math.floor(Date.now() / 1000) - 86_400 },
+        }),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { subscription: paid() }),
+    );
+  });
+
+  it('REFUSES deleting a subscription to dodge a failed payment', async () => {
+    await consoleWrite('users/' + P1, profile({ subscription: paid({ status: 'past_due' }) }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { subscription: deleteField() }),
+    );
+  });
+
+  it('REFUSES granting one to somebody else', async () => {
+    await consoleWrite('users/' + P2, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P2), { subscription: paid() }),
+    );
+  });
+
+  it('REFUSES riding along on a battle settle', async () => {
+    // The settle branch moves real money-adjacent counters, so it must not
+    // become a door onto the paid field.
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 32,
+      player2Score: 27,
+      player1Meta: { autoReps: 32, manualAdjust: 0, source: 'camera' },
+      player2Meta: { autoReps: 27, manualAdjust: 0, source: 'camera' },
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+    });
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        pendingBattleId: null,
+        battlesPlayed: 1,
+        xp: 164,
+        coins: 13,
+        totalReps: 32,
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        bestScore: 32,
+        subscription: paid(),
+      }),
+    );
+  });
+
+  it('still allows an ordinary profile edit on an account that has one', async () => {
+    // The guard must not lock a paying customer out of renaming themselves.
+    await consoleWrite('users/' + P1, profile({ subscription: paid() }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Balboa' }),
+    );
+  });
+
+  it('lets a subscription be read, since the badge is public', async () => {
+    await consoleWrite('users/' + P1, profile({ subscription: paid() }));
+    await assertSucceeds(getDoc(doc(dbOf(P2), 'users', P1)));
+  });
+});

@@ -1,3 +1,4 @@
+import type { Subscription } from '@/lib/subscription';
 import type { Timestamp } from 'firebase/firestore';
 
 /** Lifecycle of a battle document. */
@@ -101,6 +102,15 @@ export interface UserDoc {
    * being lost or paid twice.
    */
   pendingBattleId?: string | null;
+
+  /**
+   * Paid plan, or absent for a free account.
+   *
+   * Written ONLY by the Stripe webhook via the Admin SDK. The rules deny this
+   * field on every client path, exactly like `role`, so what a client reads
+   * here is something it could not have written.
+   */
+  subscription?: Subscription;
 
   /**
    * Set BY HAND in the Firestore console; the security rules forbid every

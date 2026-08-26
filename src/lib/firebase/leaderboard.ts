@@ -1,5 +1,6 @@
 'use client';
 
+import type { Subscription } from '@/lib/subscription';
 import {
   collection,
   getCountFromServer,
@@ -31,6 +32,8 @@ export interface RankedPlayer {
   xp: number;
   /** 1-based position within the returned page. */
   rank: number;
+  /** Paid plan, for the badge. Never affects ordering. */
+  subscription?: Subscription;
 }
 
 const toRanked = (
@@ -46,6 +49,7 @@ const toRanked = (
   totalReps: d.totalReps ?? 0,
   xp: d.xp ?? 0,
   rank,
+  subscription: d.subscription,
 });
 
 /**

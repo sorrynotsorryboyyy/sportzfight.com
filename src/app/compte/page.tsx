@@ -12,12 +12,15 @@ import { Spinner } from '@/components/ui/Spinner';
 import { LevelRing, XpBar } from '@/components/profile/LevelRing';
 import { UsernameEditor } from '@/components/profile/UsernameEditor';
 import { StreakCard } from '@/components/profile/StreakCard';
+import { PlanBadge } from '@/components/profile/PlanBadge';
+import { SubscriptionCard } from '@/components/profile/SubscriptionCard';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { battleHistory } from '@/lib/firebase/battles';
 import { reconcileCredits } from '@/lib/firebase/stats';
 import { resumeDailyBonus } from '@/lib/firebase/daily';
+import { historyLimit } from '@/lib/subscription';
 import { outcomeFor, xpFor } from '@/lib/progression/awards';
 import { getExercise } from '@/lib/exercise/registry';
 import { cn } from '@/lib/utils/cn';
@@ -111,6 +114,10 @@ export default function AccountPage() {
 
   const uid = user?.uid ?? null;
 
+  // A paid plan buys the full history rather than the last 20 — one of the
+  // perks the shop advertises, so it has to actually exist.
+  const limit = historyLimit(profile?.subscription);
+
   // Pay out anything the battle screen missed — a tab closed before the
   // result landed, a dropped connection, or a battle played before the XP
   // system existed. Idempotent: receipts make an already-paid battle a no-op,
@@ -121,25 +128,25 @@ export default function AccountPage() {
       .then((r) => {
         // The profile updates itself through its onSnapshot subscription; only
         // the history list needs a nudge, and only if something actually paid.
-        if (r.credited > 0) void battleHistory(uid, 20).then(setHistory);
+        if (r.credited > 0) void battleHistory(uid, limit).then(setHistory);
       })
       .catch(() => {});
 
     // Same duty for the streak: a bonus whose receipt committed but whose
     // payout did not is owed, and finishing it here is idempotent.
     void resumeDailyBonus(uid).catch(() => {});
-  }, [uid]);
+  }, [uid, limit]);
 
   useEffect(() => {
     if (!uid) return;
     let alive = true;
-    void battleHistory(uid, 20).then((h) => {
+    void battleHistory(uid, limit).then((h) => {
       if (alive) setHistory(h);
     });
     return () => {
       alive = false;
     };
-  }, [uid]);
+  }, [uid, limit]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
   if (authLoading || !uid || !profile) {
@@ -214,6 +221,7 @@ export default function AccountPage() {
             <span className="tnum rounded-full bg-gold/10 px-2.5 py-0.5 text-sm font-black text-gold">
               {profile.coins ?? 0} $SC
             </span>
+            <PlanBadge subscription={profile.subscription} />
           </div>
         </div>
       </Card>
@@ -224,6 +232,8 @@ export default function AccountPage() {
 
       {/* The retention loop: streak, daily objective, and what they pay. */}
       {uid && <StreakCard uid={uid} />}
+
+      <SubscriptionCard subscription={profile.subscription} />
 
       {/* stats */}
       <section>
