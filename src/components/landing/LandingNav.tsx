@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils/cn';
 const LINKS = [
   { href: '#comment', label: 'Comment ça marche' },
   { href: '#classement', label: 'Classement' },
+  { href: '/boutique', label: 'Boutique' },
 ] as const;
 
 export function LandingNav() {

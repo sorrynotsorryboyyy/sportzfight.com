@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
-import { FloatingCta } from '@/components/ui/FloatingCta';
+import { BottomNav } from '@/components/ui/BottomNav';
 import { Spinner } from '@/components/ui/Spinner';
 import { LevelRing, XpBar } from '@/components/profile/LevelRing';
 import { UsernameEditor } from '@/components/profile/UsernameEditor';
@@ -152,7 +152,7 @@ export default function AccountPage() {
 
   return (
     <>
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-28">
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-32">
       <header className="flex items-center justify-between py-1">
         <Link href="/">
           <Logo className="text-xl" />
@@ -266,7 +266,7 @@ export default function AccountPage() {
 
     </main>
 
-    <FloatingCta />
+    <BottomNav />
     </>
   );
 }

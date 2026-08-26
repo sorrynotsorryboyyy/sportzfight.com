@@ -21,18 +21,18 @@ import { PhoneMockup } from './PhoneMockup';
 const STEPS = [
   {
     n: '1',
-    title: 'Trouve un adversaire',
-    body: 'Un clic, et on te met face à quelqu’un au hasard. Pas de code à partager, pas d’attente.',
+    title: 'Pose ton téléphone',
+    body: 'Au sol, de côté. Pas de tapis, pas d’abonnement en salle, pas de tenue.',
   },
   {
     n: '2',
-    title: '60 secondes de pompes',
-    body: 'Décompte synchronisé sur les deux téléphones. Vous démarrez exactement en même temps.',
+    title: 'Une minute, pas plus',
+    body: 'Un adversaire trouvé en un clic, un décompte synchronisé, et c’est parti.',
   },
   {
     n: '3',
-    title: 'La caméra compte',
-    body: 'Chaque répétition validée automatiquement. Les demi-pompes ne passent pas.',
+    title: 'La caméra fait le reste',
+    body: 'Chaque répétition comptée automatiquement. Tu n’as qu’à te donner à fond.',
   },
 ] as const;
 
@@ -57,19 +57,16 @@ export function Landing() {
         >
           <div className="animate-rise">
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-volt-500">
-              1 vs 1 · en direct
+              60 secondes chrono
             </p>
             <h1 className="mt-4 text-5xl font-black uppercase leading-[0.88] tracking-tighter sm:text-6xl lg:text-7xl">
-              Défie
+              Le sport
               <br />
-              tes potes.
-              <br />
-              <span className="text-volt-500">Prouve-le.</span>
+              <span className="text-volt-500">sans excuse.</span>
             </h1>
             <p className="mt-6 max-w-md text-lg leading-snug text-ink-300 lg:text-xl">
-              Un max de{' '}
-              <strong className="text-ink-100">pompes en 60 secondes</strong>.
-              Ta caméra compte les reps. Le meilleur gagne.
+              Une minute, ton téléphone, aucun matériel. Ta caméra compte les
+              répétitions pendant que tu affrontes quelqu’un en direct.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -99,11 +96,10 @@ export function Landing() {
       <section id="comment" className="scroll-mt-20 border-t border-ink-800/60 py-16 lg:py-24">
         <div className={SHELL}>
           <h2 className="text-3xl font-black uppercase tracking-tighter sm:text-4xl">
-            Trois étapes, <span className="text-volt-500">une minute</span>
+            Aucune raison de <span className="text-volt-500">remettre à demain</span>
           </h2>
           <p className="mt-3 max-w-lg text-ink-400">
-            Pas d’inscription compliquée, pas de matériel. Ton téléphone au sol
-            et c’est parti.
+            Le temps de lire cette page, tu aurais déjà fini ta séance.
           </p>
 
           <ol className="mt-10 grid gap-4 md:grid-cols-3 md:gap-6">
@@ -181,10 +177,10 @@ export function Landing() {
       <section className="border-t border-ink-800/60 py-16 text-center lg:py-24">
         <div className={SHELL}>
           <h2 className="text-4xl font-black uppercase leading-none tracking-tighter sm:text-5xl">
-            Prêt à te faire <span className="text-flare-400">battre</span> ?
+            Ta séance commence <span className="text-volt-500">maintenant</span>
           </h2>
           <p className="mx-auto mt-4 max-w-md text-ink-400">
-            Une minute suffit pour savoir qui est le meilleur.
+            Soixante secondes. Tu les as.
           </p>
           <Link href="/login" className="mt-8 inline-block w-full sm:w-auto">
             <Button size="xl" className="sm:px-12">
@@ -214,6 +210,12 @@ export function Landing() {
               className="text-ink-500 transition-colors hover:text-ink-300"
             >
               Classement
+            </Link>
+            <Link
+              href="/boutique"
+              className="text-ink-500 transition-colors hover:text-ink-300"
+            >
+              Boutique
             </Link>
             <Link
               href="/login"

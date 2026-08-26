@@ -1,6 +1,6 @@
 'use client';
 
-import { FloatingCta } from '@/components/ui/FloatingCta';
+import { BottomNav } from '@/components/ui/BottomNav';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { Landing } from '@/components/landing/Landing';
@@ -33,15 +33,15 @@ export default function Home() {
         {/* Mobile only: the landing has its own CTAs and a sticky nav, and a
             bar pinned to the bottom of a wide screen looks like a phone app
             stretched onto a desktop. */}
-        <FloatingCta label="COMMENCER" className="md:hidden" />
+        <BottomNav className="md:hidden" />
       </>
     );
   }
 
   return (
     <>
-      {/* pb-28 keeps the floating CTA from covering the last card. */}
-      <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 p-6 pb-28">
+      {/* pb-32 keeps the bottom nav from covering the last card. */}
+      <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 p-6 pb-32">
         <header className="flex items-center justify-between py-1">
           <Logo className="text-xl" />
           {!loading && (
@@ -65,7 +65,7 @@ export default function Home() {
         </footer>
       </main>
 
-      <FloatingCta />
+      <BottomNav />
     </>
   );
 }
