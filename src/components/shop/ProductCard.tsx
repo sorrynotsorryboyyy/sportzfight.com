@@ -5,6 +5,7 @@ import {
   maxDiscount,
   type Product,
 } from '@/lib/shop/catalog';
+import { weeksToEarn } from '@/lib/shop/pace';
 import { ProductMark } from './ProductIcons';
 
 /**
@@ -49,6 +50,9 @@ export function ProductCard({ product }: { product: Product }) {
 
         <p className="mt-1.5 text-[0.7rem] leading-snug text-gold">
           Jusqu’à −{formatEuros(cap.cents)} avec {cap.coins} $SC
+        </p>
+        <p className="mt-0.5 text-[0.65rem] leading-snug text-ink-500">
+          ≈ {weeksToEarn(cap.coins)} en jouant tous les jours
         </p>
 
         {product.sizes && (

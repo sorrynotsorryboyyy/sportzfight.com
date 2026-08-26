@@ -10,11 +10,13 @@ import { BottomNav } from '@/components/ui/BottomNav';
 import { Spinner } from '@/components/ui/Spinner';
 import { LevelRing, XpBar } from '@/components/profile/LevelRing';
 import { UsernameEditor } from '@/components/profile/UsernameEditor';
+import { StreakCard } from '@/components/profile/StreakCard';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { battleHistory } from '@/lib/firebase/battles';
 import { reconcileCredits } from '@/lib/firebase/stats';
+import { resumeDailyBonus } from '@/lib/firebase/daily';
 import { outcomeFor, xpFor } from '@/lib/progression/awards';
 import { getExercise } from '@/lib/exercise/registry';
 import { cn } from '@/lib/utils/cn';
@@ -121,6 +123,10 @@ export default function AccountPage() {
         if (r.credited > 0) void battleHistory(uid, 20).then(setHistory);
       })
       .catch(() => {});
+
+    // Same duty for the streak: a bonus whose receipt committed but whose
+    // payout did not is owed, and finishing it here is idempotent.
+    void resumeDailyBonus(uid).catch(() => {});
   }, [uid]);
 
   useEffect(() => {
@@ -214,6 +220,9 @@ export default function AccountPage() {
       <Card>
         <XpBar xp={xp} />
       </Card>
+
+      {/* The retention loop: streak, daily objective, and what they pay. */}
+      {uid && <StreakCard uid={uid} />}
 
       {/* stats */}
       <section>

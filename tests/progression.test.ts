@@ -23,7 +23,7 @@ import {
 describe('award contract', () => {
   it('matches the values hardcoded in firestore.rules', () => {
     expect(XP_BASE).toEqual({ win: 100, draw: 60, loss: 40 });
-    expect(COINS).toEqual({ win: 25, draw: 15, loss: 10 });
+    expect(COINS).toEqual({ win: 3, draw: 2, loss: 1 });
     expect(XP_PER_REP).toBe(2);
   });
 

@@ -35,9 +35,27 @@ service cloud.firestore {
     function xpDraw()   { return 60; }
     function xpLoss()   { return 40; }
     function xpPerRep() { return 2; }
-    function coinsWin() { return 25; }
-    function coinsDraw(){ return 15; }
-    function coinsLoss(){ return 10; }
+    function coinsWin() { return 3; }
+    function coinsDraw(){ return 2; }
+    function coinsLoss(){ return 1; }
+    function prBonus()  { return 10; }
+
+    // ---- daily bonus contract (also mirrors awards.ts) ----
+    function dailyGoalCoins()   { return 5; }
+    function dailyGoalBattles() { return 3; }
+    function streak3Coins()     { return 10; }
+    function streak7Coins()     { return 40; }
+    // A "day" is a rolling window, not a calendar date: rules have no timezone,
+    // and a UTC midnight falls mid-evening in France.
+    function streakWindowSecs() { return 72000; }   // 20 h
+    function streakGraceSecs()  { return 172800; }  // 48 h
+
+    /** What the nth consecutive day pays. Must match bonusForStreak(). */
+    function streakBonus(n) {
+      return dailyGoalCoins()
+           + (n % 3 == 0 ? streak3Coins() : 0)
+           + (n % 7 == 0 ? streak7Coins() : 0);
+    }
 
     // ---- reading a finished battle to verify a stat claim ----
     // These cost one document read per rule evaluation, but Firestore memoises
@@ -153,7 +171,11 @@ service cloud.firestore {
             && nu().pendingBattleId == null
             && bumped('battlesPlayed', 1)
             && bumped('xp', xpAward(bid(), userId))
-            && bumped('coins', coinAward(bid(), userId))
+            // The personal-best bonus rides on the same comparison the
+            // bestScore ratchet below already makes, so it costs no extra read.
+            && bumped('coins', coinAward(bid(), userId)
+                             + (repsOf(bid(), userId) > was('bestScore')
+                                  ? prBonus() : 0))
             && bumped('totalReps', repsOf(bid(), userId))
             && bumped('wins',   drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 1 : 0))
             && bumped('losses', drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 0 : 1))
@@ -171,6 +193,46 @@ service cloud.firestore {
             && nu().pendingBattleId == null;
       }
 
+      // ---------------- daily streak bonus ----------------
+      // Two phases, for the same reason the battle payout has two: rules cannot
+      // see sibling writes in a batch, so the receipt must already be committed
+      // when the counters move.
+      //
+      //   phase 1  create users/{uid}/dailyBonus/{k}  — proves the day and the
+      //            three battles, and stamps `at` with the server clock
+      //   phase 2  bump coins/streak here, against that committed receipt
+      //
+      // Ordering them this way means a client that dies between the two has
+      // written a receipt it was entitled to and simply has not been paid; it
+      // can retry. The reverse order would pay first and prove later.
+      //
+      // The receipt id is `bonusCount`, which only ever increments — NOT the
+      // streak, which resets. Keying receipts by streak would make day 1 of a
+      // second streak collide with day 1 of the first, locking a player out of
+      // the bonus permanently once their first streak broke.
+      function nextCount()  { return now_('bonusCount'); }
+      function nextStreak() { return now_('streak'); }
+      function bonusReceipt(k) {
+        return /databases/$(database)/documents/users/$(userId)/dailyBonus/$(string(k));
+      }
+      function validDailyBonus() {
+        return touched().hasOnly(['coins', 'streak', 'bonusCount', 'lastBonusAt'])
+            && nextStreak() is int
+            && nextStreak() > 0
+            && bumped('bonusCount', 1)
+            // The streak either advances by one or restarts at 1. It can never
+            // jump, so no client can buy a 7-day payout on its first day.
+            && (nextStreak() == was('streak') + 1 || nextStreak() == 1)
+            // The amount is recomputed here, never taken from the client.
+            && bumped('coins', streakBonus(nextStreak()))
+            // Pins the payout to the receipt: the receipt names the streak it
+            // is paying, so the two cannot disagree, and its `at` was already
+            // forced to the server clock by the receipt's own rule.
+            && exists(bonusReceipt(nextCount()))
+            && get(bonusReceipt(nextCount())).data.streak == nextStreak()
+            && nu().lastBonusAt == get(bonusReceipt(nextCount())).data.at;
+      }
+
       allow update: if isSelf()
                     && !touched().hasAny(['role', 'email', 'level', 'createdAt'])
                     && (
@@ -178,6 +240,7 @@ service cloud.firestore {
                       || validClaim()
                       || validSettle()
                       || validAbandonClaim()
+                      || validDailyBonus()
                     );
 
       allow delete: if false;
@@ -199,6 +262,66 @@ service cloud.firestore {
                            .data.get('pendingBattleId', null) == battleId
                       && request.resource.data.keys().hasOnly(['at'])
                       && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
+
+      // Daily streak receipts, one per consecutive day. Immutable, exactly like
+      // creditedBattles: the document's existence IS the "already claimed today"
+      // memory that rules otherwise lack.
+      //
+      // The id is the parent's bonusCount, which never resets. Claiming the same
+      // day twice is therefore a duplicate create and fails on its own, and a
+      // restarted streak gets a fresh id instead of colliding with its own past.
+      match /dailyBonus/{k} {
+        function me()   { return get(/databases/$(database)/documents/users/$(userId)).data; }
+        function first(){ return int(k) == 1; }
+        function prev() {
+          return get(/databases/$(database)/documents/users/$(userId)/dailyBonus/$(string(int(k) - 1))).data;
+        }
+        function prevExists() {
+          return exists(/databases/$(database)/documents/users/$(userId)/dailyBonus/$(string(int(k) - 1)));
+        }
+        function d() { return request.resource.data; }
+
+        // Has the previous claim aged out of the window in which a streak can
+        // still be continued?
+        function streakDead() {
+          return request.time > prev().at + duration.value(streakGraceSecs(), 's');
+        }
+
+        // A battle only counts if it really concluded, really involved this
+        // player, and happened AFTER the previous bonus — otherwise one good
+        // day could be replayed over and over to farm a streak.
+        function counts(bid) {
+          return creditableBattle(bid, userId)
+              && battleOf(bid).endedAt != null
+              && (first() || battleOf(bid).endedAt > prev().at);
+        }
+
+        allow read: if isSelf();
+
+        allow create: if isSelf()
+                      // Receipts are consecutive: this must be the parent's
+                      // next count, so none can be skipped or backfilled.
+                      && int(k) == me().get('bonusCount', 0) + 1
+                      && d().keys().hasOnly(['at', 'streak', 'b1', 'b2', 'b3'])
+                      && d().streak is int
+                      && d().streak >= 1
+                      // Server clock, not the client's word.
+                      && d().at == request.time
+                      // The declared streak must match what the elapsed time
+                      // actually permits: continue only inside the window, and
+                      // restart at 1 once the grace period has passed.
+                      && (first()
+                            ? d().streak == 1
+                            : (prevExists()
+                                 // One claim per window: no claiming twice a day.
+                                 && request.time >= prev().at + duration.value(streakWindowSecs(), 's')
+                                 && d().streak == (streakDead() ? 1 : prev().streak + 1)))
+                      // Three DISTINCT battles: the daily objective.
+                      && d().b1 != d().b2 && d().b2 != d().b3 && d().b1 != d().b3
+                      && counts(d().b1) && counts(d().b2) && counts(d().b3);
+
         allow update, delete: if false;
       }
 

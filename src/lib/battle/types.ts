@@ -85,6 +85,17 @@ export interface UserDoc {
   bestScore?: number;
 
   /**
+   * Consecutive days claimed. Resets to 1 when the grace period lapses.
+   *
+   * `bonusCount` is the total number of bonuses ever claimed and never resets:
+   * it names the receipt document, so a restarted streak cannot collide with
+   * its own past. Both are verified by the rules against a committed receipt.
+   */
+  streak?: number;
+  bonusCount?: number;
+  lastBonusAt?: Timestamp | null;
+
+  /**
    * Set while a finished battle is being credited, cleared when the payout
    * settles. Its presence is what lets an interrupted credit resume instead of
    * being lost or paid twice.

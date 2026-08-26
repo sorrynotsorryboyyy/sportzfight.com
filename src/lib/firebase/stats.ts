@@ -8,7 +8,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from './client';
-import { coinsFor, outcomeFor, xpFor } from '@/lib/progression/awards';
+import { battleCoins, outcomeFor, xpFor } from '@/lib/progression/awards';
 import { battleHistory } from './battles';
 import type { BattleDoc, UserDoc } from '@/lib/battle/types';
 
@@ -60,7 +60,6 @@ export async function creditBattle(
   const reps = uid === battle.player1 ? battle.player1Score : battle.player2Score;
   const outcome = outcomeFor(battle.winner, uid);
   const xp = xpFor(outcome, reps);
-  const coins = coinsFor(outcome);
 
   try {
     // ---- phase 1: claim ----
@@ -70,7 +69,9 @@ export async function creditBattle(
     return NOTHING;
   }
 
-  return settle(uid, battleId, { reps, outcome, xp, coins });
+  // Coins are NOT computed here: the personal-best bonus depends on the
+  // bestScore committed before this battle, which settle() reads.
+  return settle(uid, battleId, { reps, outcome, xp });
 }
 
 async function settle(
@@ -80,12 +81,15 @@ async function settle(
     reps: number;
     outcome: 'win' | 'loss' | 'draw';
     xp: number;
-    coins: number;
   },
 ): Promise<CreditResult> {
   const snap = await getDoc(userRef(uid));
   const cur = (snap.data() ?? {}) as Partial<UserDoc>;
   const was = (n: number | undefined) => n ?? 0;
+
+  // Against the PRE-WRITE best, exactly as the rules compare it. Computing this
+  // from the post-write value would award the bonus to every battle.
+  const coins = battleCoins(award.outcome, award.reps, was(cur.bestScore));
 
   const batch = writeBatch(db());
 
@@ -94,7 +98,7 @@ async function settle(
     pendingBattleId: null,
     battlesPlayed: was(cur.battlesPlayed) + 1,
     xp: was(cur.xp) + award.xp,
-    coins: was(cur.coins) + award.coins,
+    coins: was(cur.coins) + coins,
     totalReps: was(cur.totalReps) + award.reps,
     wins: was(cur.wins) + (award.outcome === 'win' ? 1 : 0),
     losses: was(cur.losses) + (award.outcome === 'loss' ? 1 : 0),
@@ -104,7 +108,7 @@ async function settle(
 
   try {
     await batch.commit();
-    return { credited: true, xp: award.xp, coins: award.coins };
+    return { credited: true, xp: award.xp, coins };
   } catch {
     // The counters did not move. Drop the claim so the account is not wedged
     // holding a pending battle it can never settle.
@@ -132,12 +136,7 @@ export async function resumePendingCredit(uid: string): Promise<CreditResult> {
   const reps = uid === battle.player1 ? battle.player1Score : battle.player2Score;
   const outcome = outcomeFor(battle.winner, uid);
 
-  return settle(uid, pending, {
-    reps,
-    outcome,
-    xp: xpFor(outcome, reps),
-    coins: coinsFor(outcome),
-  });
+  return settle(uid, pending, { reps, outcome, xp: xpFor(outcome, reps) });
 }
 
 /**

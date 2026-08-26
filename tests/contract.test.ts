@@ -11,7 +11,19 @@ import {
   STALE_LIVE_MS,
   STALE_MS,
 } from '../src/lib/battle/constants';
-import { COINS, XP_BASE, XP_PER_REP } from '../src/lib/progression/awards';
+import {
+  COINS,
+  DAILY_GOAL_BATTLES,
+  DAILY_GOAL_COINS,
+  PR_BONUS,
+  STREAK_3_COINS,
+  STREAK_7_COINS,
+  STREAK_GRACE_HOURS,
+  STREAK_WINDOW_HOURS,
+  XP_BASE,
+  XP_PER_REP,
+  bonusForStreak,
+} from '../src/lib/progression/awards';
 
 /**
  * firestore.rules cannot import TypeScript, so a handful of numbers are written
@@ -82,6 +94,46 @@ describe('award contract: awards.ts ↔ firestore.rules', () => {
 
   it('XP_PER_REP matches xpPerRep()', () => {
     expect(ruleValue('xpPerRep')).toBe(XP_PER_REP);
+  });
+
+  it('PR_BONUS matches prBonus()', () => {
+    expect(ruleValue('prBonus')).toBe(PR_BONUS);
+  });
+});
+
+describe('daily bonus contract: awards.ts <-> firestore.rules', () => {
+  // The streak is the retention mechanism and pays far more than a battle, so
+  // a drift here is both a silent outage and an economy bug.
+  it.each([
+    ['dailyGoalCoins', DAILY_GOAL_COINS],
+    ['dailyGoalBattles', DAILY_GOAL_BATTLES],
+    ['streak3Coins', STREAK_3_COINS],
+    ['streak7Coins', STREAK_7_COINS],
+  ])('%s() matches its TS twin', (fn, value) => {
+    expect(ruleValue(fn)).toBe(value);
+  });
+
+  it('the rolling window and grace period match, in seconds', () => {
+    expect(ruleValue('streakWindowSecs')).toBe(STREAK_WINDOW_HOURS * 3600);
+    expect(ruleValue('streakGraceSecs')).toBe(STREAK_GRACE_HOURS * 3600);
+  });
+
+  it('the window is shorter than the grace period', () => {
+    // Otherwise a streak would expire before it could next be claimed, and
+    // nobody could ever reach day 2.
+    expect(STREAK_WINDOW_HOURS).toBeLessThan(STREAK_GRACE_HOURS);
+  });
+
+  it('bonusForStreak agrees with the tiers the rules compute', () => {
+    // The rules recompute this from the same three constants; if the TS
+    // reimplementation drifts, every payout is denied.
+    const fromRules = (n: number) =>
+      DAILY_GOAL_COINS +
+      (n % 3 === 0 ? STREAK_3_COINS : 0) +
+      (n % 7 === 0 ? STREAK_7_COINS : 0);
+    for (let n = 1; n <= 60; n++) {
+      expect(bonusForStreak(n)).toBe(fromRules(n));
+    }
   });
 });
 

@@ -6,6 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
 import {
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -952,7 +953,9 @@ describe('progression — counters cannot be invented', () => {
    * a modified client would actually try.
    *
    * Award contract (mirrors src/lib/progression/awards.ts):
-   *   win 100 XP / 25 SC, draw 60 / 15, loss 40 / 10, plus 2 XP per rep.
+   *   win 100 XP / 3 SC, draw 60 / 2, loss 40 / 1, plus 2 XP per rep.
+   *   Beating your own bestScore adds a further 10 SC. Every fixture below
+   *   starts at bestScore 0, so every payout here includes that bonus.
    */
   const FINISHED = 3 + 60 + 5;
 
@@ -985,12 +988,12 @@ describe('progression — counters cannot be invented', () => {
     ...over,
   });
 
-  /** The settle payload for P1's win: 100 + 32*2 = 164 XP, 25 SC. */
+  /** P1's win: 100 + 32*2 = 164 XP, 3 SC + 10 PR bonus (32 > bestScore 0). */
   const p1Settle = (over = {}) => ({
     pendingBattleId: null,
     battlesPlayed: 1,
     xp: 164,
-    coins: 25,
+    coins: 13,
     totalReps: 32,
     wins: 1,
     losses: 0,
@@ -1075,7 +1078,7 @@ describe('progression — counters cannot be invented', () => {
         pendingBattleId: null,
         battlesPlayed: 1,
         xp: 94,
-        coins: 10,
+        coins: 11,
         totalReps: 27,
         wins: 1,
         losses: 0,
@@ -1086,7 +1089,7 @@ describe('progression — counters cannot be invented', () => {
   });
 
   it("accepts the loser's correct payout", async () => {
-    // 40 + 27*2 = 94 XP, 10 SC, losses+1.
+    // 40 + 27*2 = 94 XP, 1 SC + 10 PR bonus (27 > bestScore 0), losses+1.
     await seedFinished();
     await consoleWrite('users/' + P2, profile({ pendingBattleId: BID }));
     await assertSucceeds(
@@ -1094,7 +1097,7 @@ describe('progression — counters cannot be invented', () => {
         pendingBattleId: null,
         battlesPlayed: 1,
         xp: 94,
-        coins: 10,
+        coins: 11,
         totalReps: 27,
         wins: 0,
         losses: 1,
@@ -1121,11 +1124,42 @@ describe('progression — counters cannot be invented', () => {
   it('does not let bestScore be ratcheted down', async () => {
     await seedFinished();
     await consoleWrite('users/' + P1, profile({ pendingBattleId: BID, bestScore: 90 }));
+    // 32 does not beat a best of 90, so this settle earns the base 3 SC and
+    // NOT the personal-record bonus.
     await assertFails(
-      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32 })),
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32, coins: 3 })),
     );
     await assertSucceeds(
-      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 90 })),
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 90, coins: 3 })),
+    );
+  });
+
+  it('pays the personal-record bonus only when the record actually falls', async () => {
+    // The bonus is what makes progress pay more than volume, so it must not
+    // leak onto every battle. 32 reps against a best of 90 earns the base only.
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID, bestScore: 90 }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 90, coins: 13 })),
+    );
+  });
+
+  it('pays the record bonus when the score edges past the old best by one', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID, bestScore: 31 }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32, coins: 13 })),
+    );
+  });
+
+  it('pays no record bonus for merely equalling the old best', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID, bestScore: 32 }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32, coins: 13 })),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), p1Settle({ bestScore: 32, coins: 3 })),
     );
   });
 
@@ -1302,13 +1336,13 @@ describe('progression — backfilling battles the client missed', () => {
     await assertSucceeds(
       updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
     );
-    // 100 + 12*2 = 124 xp, 25 coins.
+    // 100 + 12*2 = 124 xp, 3 + 10 PR bonus = 13 coins.
     await assertSucceeds(
       updateDoc(doc(dbOf(P1), 'users', P1), {
         pendingBattleId: null,
         battlesPlayed: 1,
         xp: 124,
-        coins: 25,
+        coins: 13,
         totalReps: 12,
         wins: 1,
         losses: 0,
@@ -1338,8 +1372,9 @@ describe('progression — backfilling battles the client missed', () => {
       updateDoc(doc(dbOf(P1), 'users', P1), {
         pendingBattleId: null,
         battlesPlayed: 1,
+        // A 0-0 draw ties bestScore 0 rather than beating it: no PR bonus.
         xp: 60,
-        coins: 15,
+        coins: 2,
         totalReps: 0,
         wins: 0,
         losses: 0,
@@ -1391,7 +1426,7 @@ describe('progression — backfilling battles the client missed', () => {
         pendingBattleId: null,
         battlesPlayed: 1,
         xp: 124,
-        coins: 25,
+        coins: 13,
         totalReps: 12,
         wins: 1,
         losses: 0,
@@ -1405,5 +1440,342 @@ describe('progression — backfilling battles the client missed', () => {
     await assertFails(
       updateDoc(doc(dbOf(P1), 'users', P1), { pendingBattleId: BID }),
     );
+  });
+});
+
+describe('daily bonus - the streak cannot be forged', () => {
+  /**
+   * The retention mechanism, and therefore the thing worth attacking: the
+   * bonus pays 5-45 SC for showing up, against 3 SC for winning a battle.
+   *
+   * Rules cannot count a collection, so the client NAMES the three battles
+   * behind its claim and each one is verified. Rules also cannot see sibling
+   * writes in a batch, so this is two phases like the battle payout: the
+   * receipt commits first and proves the day, then the counters move against it.
+   *
+   * Contract (mirrors awards.ts): 5 SC per day, +10 every 3rd, +40 every 7th.
+   * A "day" is a rolling 20h window; past 48h the streak restarts at 1.
+   */
+  const HOUR = 3_600_000;
+
+  /** A finished battle `id`, concluded `hoursAgo`, that P1 really played. */
+  async function seedBattle(id: string, hoursAgo: number) {
+    await consoleWrite('battles/' + id, baseBattle({
+      status: 'finished',
+      player2: P2,
+      players: [P1, P2],
+      player1Ready: true,
+      player2Ready: true,
+      player1Score: 30,
+      player2Score: 20,
+      winner: P1,
+      endReason: 'time',
+      createdAt: Timestamp.fromMillis(Date.now() - hoursAgo * HOUR),
+      startedAt: Timestamp.fromMillis(Date.now() - hoursAgo * HOUR),
+      endedAt: Timestamp.fromMillis(Date.now() - hoursAgo * HOUR),
+    }));
+  }
+
+  /** Three fresh finished battles: the daily objective, satisfied. */
+  async function seedThree(hoursAgo = 1) {
+    await seedBattle('b-a', hoursAgo);
+    await seedBattle('b-b', hoursAgo);
+    await seedBattle('b-c', hoursAgo);
+  }
+
+  const player = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    coins: 0,
+    streak: 0,
+    bonusCount: 0,
+    ...over,
+  });
+
+  const receipt = (over = {}) => ({
+    at: serverTimestamp(),
+    streak: 1,
+    b1: 'b-a',
+    b2: 'b-b',
+    b3: 'b-c',
+    ...over,
+  });
+
+  const claimRef = (k: number) => doc(dbOf(P1), 'users', P1, 'dailyBonus', String(k));
+
+  // ---------------- the legitimate path ----------------
+
+  it('accepts a first claim backed by three real battles', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+  });
+
+  it('pays exactly the first day rate, and refuses any other amount', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+
+    const at = (await getDoc(claimRef(1))).data()!.at;
+    const payout = (coins: number) => ({
+      coins,
+      streak: 1,
+      bonusCount: 1,
+      lastBonusAt: at,
+    });
+
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), payout(45)));
+    await assertFails(updateDoc(doc(dbOf(P1), 'users', P1), payout(6)));
+    await assertSucceeds(updateDoc(doc(dbOf(P1), 'users', P1), payout(5)));
+  });
+
+  it('pays the 3rd-day and 7th-day milestones exactly', async () => {
+    // Day 3 is 5 + 10; day 7 is 5 + 40. These are the numbers that make a
+    // streak worth protecting, so they must be exact.
+    //
+    // A prior receipt has to exist and be old enough, because a FIRST receipt
+    // is day 1 by rule however the client labels it — that is what stops
+    // someone opening on a milestone.
+    for (const [streak, coins] of [[3, 15], [7, 45]] as const) {
+      await env.clearFirestore();
+      await seedThree(1);
+      await consoleWrite('users/' + P1, player({ streak: streak - 1, bonusCount: 1 }));
+      // Yesterday's receipt: inside the 48h grace, past the 20h window.
+      await consoleWrite('users/' + P1 + '/dailyBonus/1', {
+        at: Timestamp.fromMillis(Date.now() - 24 * HOUR),
+        streak: streak - 1,
+        b1: 'old-a',
+        b2: 'old-b',
+        b3: 'old-c',
+      });
+
+      await assertSucceeds(setDoc(claimRef(2), receipt({ streak })));
+      const at = (await getDoc(claimRef(2))).data()!.at;
+      await assertSucceeds(
+        updateDoc(doc(dbOf(P1), 'users', P1), {
+          coins,
+          streak,
+          bonusCount: 2,
+          lastBonusAt: at,
+        }),
+      );
+    }
+  });
+
+  it('restarts the streak at 1 once the grace period has lapsed', async () => {
+    // Three days running then a week off must not resume at day 4.
+    await seedThree(1);
+    await consoleWrite('users/' + P1, player({ streak: 3, bonusCount: 1 }));
+    await consoleWrite('users/' + P1 + '/dailyBonus/1', {
+      at: Timestamp.fromMillis(Date.now() - 96 * HOUR),
+      streak: 3,
+      b1: 'old-a',
+      b2: 'old-b',
+      b3: 'old-c',
+    });
+
+    await assertFails(setDoc(claimRef(2), receipt({ streak: 4 })));
+    await assertSucceeds(setDoc(claimRef(2), receipt({ streak: 1 })));
+  });
+
+  it('continues the streak inside the grace period', async () => {
+    await seedThree(1);
+    await consoleWrite('users/' + P1, player({ streak: 3, bonusCount: 1 }));
+    await consoleWrite('users/' + P1 + '/dailyBonus/1', {
+      at: Timestamp.fromMillis(Date.now() - 30 * HOUR),
+      streak: 3,
+      b1: 'old-a',
+      b2: 'old-b',
+      b3: 'old-c',
+    });
+
+    await assertFails(setDoc(claimRef(2), receipt({ streak: 1 })));
+    await assertSucceeds(setDoc(claimRef(2), receipt({ streak: 4 })));
+  });
+
+  it('REFUSES replaying battles that predate the previous bonus', async () => {
+    // One good day must not be farmed forever: the battles behind a claim have
+    // to have finished after the last one was paid.
+    await seedThree(60);
+    await consoleWrite('users/' + P1, player({ streak: 1, bonusCount: 1 }));
+    await consoleWrite('users/' + P1 + '/dailyBonus/1', {
+      at: Timestamp.fromMillis(Date.now() - 30 * HOUR),
+      streak: 1,
+      b1: 'old-a',
+      b2: 'old-b',
+      b3: 'old-c',
+    });
+
+    await assertFails(setDoc(claimRef(2), receipt({ streak: 2 })));
+  });
+
+  // ---------------- the attacks ----------------
+
+  it('REFUSES a second claim inside the same window', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+    await consoleWrite('users/' + P1, player({ bonusCount: 1, streak: 1 }));
+    await assertFails(setDoc(claimRef(2), receipt({ streak: 2 })));
+  });
+
+  it('REFUSES skipping a receipt number to reach a milestone early', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    // Jumping straight to receipt 7 would pay the 45 SC milestone on day one.
+    await assertFails(setDoc(claimRef(7), receipt({ streak: 7 })));
+  });
+
+  it('REFUSES a streak number the elapsed time does not justify', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    // A first receipt is day 1, whatever the client would like it to be.
+    await assertFails(setDoc(claimRef(1), receipt({ streak: 7 })));
+    await assertFails(setDoc(claimRef(1), receipt({ streak: 2 })));
+  });
+
+  it('REFUSES the same battle counted three times', async () => {
+    await seedBattle('b-a', 1);
+    await consoleWrite('users/' + P1, player());
+    await assertFails(
+      setDoc(claimRef(1), receipt({ b1: 'b-a', b2: 'b-a', b3: 'b-a' })),
+    );
+  });
+
+  it('REFUSES a battle the player never took part in', async () => {
+    await seedThree();
+    await consoleWrite('battles/b-other', baseBattle({
+      status: 'finished',
+      player1: P2,
+      player2: P3,
+      players: [P2, P3],
+      winner: P2,
+      endReason: 'time',
+      createdAt: Timestamp.now(),
+      startedAt: Timestamp.now(),
+      endedAt: Timestamp.now(),
+    }));
+    await consoleWrite('users/' + P1, player());
+    await assertFails(setDoc(claimRef(1), receipt({ b3: 'b-other' })));
+  });
+
+  it('REFUSES a battle that never finished', async () => {
+    await seedBattle('b-a', 1);
+    await seedBattle('b-b', 1);
+    await consoleWrite('battles/b-open', baseBattle({
+      status: 'live',
+      player2: P2,
+      players: [P1, P2],
+      createdAt: Timestamp.now(),
+      startedAt: Timestamp.now(),
+    }));
+    await consoleWrite('users/' + P1, player());
+    await assertFails(setDoc(claimRef(1), receipt({ b3: 'b-open' })));
+  });
+
+  it('REFUSES a battle that does not exist at all', async () => {
+    await seedBattle('b-a', 1);
+    await seedBattle('b-b', 1);
+    await consoleWrite('users/' + P1, player());
+    await assertFails(setDoc(claimRef(1), receipt({ b3: 'b-ghost' })));
+  });
+
+  it('REFUSES a client-chosen timestamp instead of the server clock', async () => {
+    // Faking `at` is how a client would shrink the 20h window.
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertFails(
+      setDoc(claimRef(1), receipt({ at: Timestamp.fromMillis(Date.now() - 40 * HOUR) })),
+    );
+  });
+
+  it('REFUSES rewriting or deleting a receipt once it exists', async () => {
+    // Immutability is what makes the receipt a memory rules otherwise lack.
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+    await assertFails(setDoc(claimRef(1), receipt({ streak: 7 })));
+    await assertFails(deleteDoc(claimRef(1)));
+  });
+
+  it('REFUSES paying without a committed receipt', async () => {
+    // The whole point of two phases: money never moves on an unproven claim.
+    await consoleWrite('users/' + P1, player());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        coins: 5,
+        streak: 1,
+        bonusCount: 1,
+        lastBonusAt: Timestamp.now(),
+      }),
+    );
+  });
+
+  it('REFUSES a payout whose streak disagrees with its receipt', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt({ streak: 1 })));
+    const at = (await getDoc(claimRef(1))).data()!.at;
+    // The receipt says day 1 (5 SC); claiming day 7 against it must fail.
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        coins: 45,
+        streak: 7,
+        bonusCount: 1,
+        lastBonusAt: at,
+      }),
+    );
+  });
+
+  it('REFUSES a payout stamped with anything but the receipt instant', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        coins: 5,
+        streak: 1,
+        bonusCount: 1,
+        lastBonusAt: Timestamp.fromMillis(Date.now() - 30 * HOUR),
+      }),
+    );
+  });
+
+  it('REFUSES touching other counters while claiming a bonus', async () => {
+    // The bonus branch must not become a door onto wins or xp.
+    await seedThree();
+    await consoleWrite('users/' + P1, player({ wins: 0, xp: 0 }));
+    await assertSucceeds(setDoc(claimRef(1), receipt()));
+    const at = (await getDoc(claimRef(1))).data()!.at;
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        coins: 5,
+        streak: 1,
+        bonusCount: 1,
+        lastBonusAt: at,
+        wins: 99,
+      }),
+    );
+  });
+
+  it('REFUSES claiming into another account streak', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P2, player());
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'users', P2, 'dailyBonus', '1'), receipt()),
+    );
+  });
+
+  it('keeps a streak private to its owner', async () => {
+    await seedThree();
+    await consoleWrite('users/' + P1, player());
+    await consoleWrite('users/' + P1 + '/dailyBonus/1', {
+      at: Timestamp.now(),
+      streak: 1,
+      b1: 'b-a',
+      b2: 'b-b',
+      b3: 'b-c',
+    });
+    await assertFails(getDoc(doc(dbOf(P2), 'users', P1, 'dailyBonus', '1')));
   });
 });
