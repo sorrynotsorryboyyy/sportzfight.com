@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
+import { Footer } from '@/components/ui/Footer';
 import { Spinner } from '@/components/ui/Spinner';
 import { LevelRing, XpBar } from '@/components/profile/LevelRing';
 import { UsernameEditor } from '@/components/profile/UsernameEditor';
@@ -273,6 +274,7 @@ export default function AccountPage() {
         )}
       </section>
 
+      <Footer className="mt-2" />
     </main>
 
     <BottomNav />

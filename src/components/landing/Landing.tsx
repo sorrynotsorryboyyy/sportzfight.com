@@ -20,6 +20,12 @@ import { StoreBadges } from './StoreBadges';
  * bottom.
  */
 
+const LEGAL = [
+  { href: '/mentions-legales', label: 'Mentions légales' },
+  { href: '/confidentialite', label: 'Confidentialité' },
+  { href: '/cgu', label: 'CGU' },
+] as const;
+
 /** Height reserved for the mobile bottom bar: tabs + padding + home indicator. */
 const BOTTOM_BAR = 'calc(5.5rem + env(safe-area-inset-bottom, 0px))';
 
@@ -69,6 +75,21 @@ export function Landing() {
             </div>
 
             <StoreBadges className="mt-6 lg:mt-8" />
+
+            {/* The landing has no footer — it is a single fold by design — so
+                the legal links live here. They have to be reachable from the
+                page a visitor actually lands on. */}
+            <p className="mt-5 flex flex-wrap gap-x-3 gap-y-1 text-[0.65rem] text-ink-600 lg:mt-6">
+              {LEGAL.map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="transition-colors hover:text-ink-400"
+                >
+                  {l.label}
+                </Link>
+              ))}
+            </p>
           </div>
 
           {/* Hidden below lg: on a phone this is what would force a scroll,

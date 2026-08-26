@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
+import { Footer } from '@/components/ui/Footer';
 import { Tabs } from '@/components/ui/Tabs';
 import { ProductCard } from '@/components/shop/ProductCard';
 import { useAuth } from '@/lib/firebase/auth-context';
@@ -259,6 +260,7 @@ function Shop() {
             {Math.round(MAX_DISCOUNT_RATIO * 100)} % du prix d’un article.
           </p>
         </Card>
+        <Footer className="mt-2" />
       </main>
 
       <BottomNav />

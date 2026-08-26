@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
+import { Footer } from '@/components/ui/Footer';
 import { Spinner } from '@/components/ui/Spinner';
 import { Podium, RankRow } from '@/components/leaderboard/Podium';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
@@ -129,6 +130,7 @@ export default function LeaderboardPage() {
         </>
       )}
 
+      <Footer className="mt-2" />
     </main>
 
     <BottomNav />
