@@ -71,7 +71,12 @@ export async function creditBattle(
 
   // Coins are NOT computed here: the personal-best bonus depends on the
   // bestScore committed before this battle, which settle() reads.
-  return settle(uid, battleId, { reps, outcome, xp });
+  return settle(uid, battleId, {
+    reps,
+    outcome,
+    xp,
+    vsBot: battle.botLevel != null,
+  });
 }
 
 async function settle(
@@ -81,6 +86,8 @@ async function settle(
     reps: number;
     outcome: 'win' | 'loss' | 'draw';
     xp: number;
+    /** Training battle: credited normally, but kept out of the ranking. */
+    vsBot: boolean;
   },
 ): Promise<CreditResult> {
   const snap = await getDoc(userRef(uid));
@@ -101,6 +108,11 @@ async function settle(
     coins: was(cur.coins) + coins,
     totalReps: was(cur.totalReps) + award.reps,
     wins: was(cur.wins) + (award.outcome === 'win' ? 1 : 0),
+    // Only a win over a real account. The rules recompute this exactly, so a
+    // client that inflated it would simply have its whole settle denied.
+    humanWins:
+      was(cur.humanWins) +
+      (award.outcome === 'win' && !award.vsBot ? 1 : 0),
     losses: was(cur.losses) + (award.outcome === 'loss' ? 1 : 0),
     draws: was(cur.draws) + (award.outcome === 'draw' ? 1 : 0),
     bestScore: Math.max(was(cur.bestScore), award.reps),
@@ -136,7 +148,12 @@ export async function resumePendingCredit(uid: string): Promise<CreditResult> {
   const reps = uid === battle.player1 ? battle.player1Score : battle.player2Score;
   const outcome = outcomeFor(battle.winner, uid);
 
-  return settle(uid, pending, { reps, outcome, xp: xpFor(outcome, reps) });
+  return settle(uid, pending, {
+    reps,
+    outcome,
+    xp: xpFor(outcome, reps),
+    vsBot: battle.botLevel != null,
+  });
 }
 
 /**

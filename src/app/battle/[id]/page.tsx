@@ -24,6 +24,9 @@ import { serverNow } from '@/lib/firebase/clock';
 import { useBattle } from '@/lib/battle/useBattle';
 import { useBattleClock } from '@/lib/battle/useBattleClock';
 import { useBattleDriver } from '@/lib/battle/useBattleDriver';
+import { useBotOpponent } from '@/lib/battle/useBotOpponent';
+import { botName } from '@/lib/battle/bot';
+import { BOT_UID } from '@/lib/firebase/battles';
 import { isStale, readyOf, slotOf } from '@/lib/battle/machine';
 import { getExercise } from '@/lib/exercise/registry';
 import { useExerciseSession } from '@/lib/exercise/runtime/useExerciseSession';
@@ -140,6 +143,10 @@ export default function BattlePage({
   useBattleDriver(battle, uid, view.phase);
 
   const slot: PlayerSlot | null = battle && uid ? slotOf(battle, uid) : null;
+
+  // Plays the bot's side when this is a training battle. A no-op otherwise,
+  // and only ever from player1's tab.
+  useBotOpponent(battle, slot);
   const profiles = useProfiles(battle?.player1 ?? null, battle?.player2 ?? null);
 
   const finalizedRef = useRef(false);
@@ -228,7 +235,14 @@ export default function BattlePage({
   const p1 = profiles[battle.player1];
   const p2 = battle.player2 ? profiles[battle.player2] : undefined;
   const p1Name = p1?.username || 'Joueur 1';
-  const p2Name = battle.player2 ? p2?.username || 'Joueur 2' : 'En attente…';
+  // A bot has no profile document, so its name comes from its seed. Ordinary
+  // on purpose — the "Entraînement" badge does the disclosing, not the name.
+  const isBotBattle = battle.botLevel != null && battle.player2 === BOT_UID;
+  const p2Name = isBotBattle
+    ? botName(battle.botSeed ?? 0)
+    : battle.player2
+      ? p2?.username || 'Joueur 2'
+      : 'En attente…';
 
   const meName = slot === 2 ? p2Name : p1Name;
   const oppName = slot === 2 ? p1Name : p2Name;
@@ -366,6 +380,7 @@ export default function BattlePage({
 
             <OpponentBar
               name={oppName}
+              isBot={isBotBattle}
               avatar={oppAvatar}
               score={oppScore}
               connected={opponentConnected}

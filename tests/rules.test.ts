@@ -978,6 +978,7 @@ describe('progression — counters cannot be invented', () => {
     wins: 0,
     losses: 0,
     draws: 0,
+    humanWins: 0,
     xp: 0,
     coins: 0,
     totalReps: 0,
@@ -996,6 +997,9 @@ describe('progression — counters cannot be invented', () => {
     wins: 1,
     losses: 0,
     draws: 0,
+    // Required since bot battles arrived: the rule recomputes it, so a settle
+    // that omits it is denied outright.
+    humanWins: 1,
     bestScore: 32,
     ...over,
   });
@@ -1081,6 +1085,7 @@ describe('progression — counters cannot be invented', () => {
         wins: 1,
         losses: 0,
         draws: 0,
+        humanWins: 1,
         bestScore: 27,
       }),
     );
@@ -1100,6 +1105,7 @@ describe('progression — counters cannot be invented', () => {
         wins: 0,
         losses: 1,
         draws: 0,
+        humanWins: 0,
         bestScore: 27,
       }),
     );
@@ -1350,6 +1356,7 @@ describe('progression — backfilling battles the client missed', () => {
         wins: 1,
         losses: 0,
         draws: 0,
+        humanWins: 1,
         bestScore: 12,
       }),
     );
@@ -1382,6 +1389,7 @@ describe('progression — backfilling battles the client missed', () => {
         wins: 0,
         losses: 0,
         draws: 1,
+        humanWins: 0,
         bestScore: 0,
       }),
     );
@@ -1434,6 +1442,7 @@ describe('progression — backfilling battles the client missed', () => {
         wins: 1,
         losses: 0,
         draws: 0,
+        humanWins: 1,
         bestScore: 12,
       }),
     );
@@ -1807,6 +1816,7 @@ describe('subscription - only the webhook can grant a paid plan', () => {
     wins: 0,
     losses: 0,
     draws: 0,
+    humanWins: 0,
     xp: 0,
     coins: 0,
     totalReps: 0,
@@ -1908,6 +1918,7 @@ describe('subscription - only the webhook can grant a paid plan', () => {
         wins: 1,
         losses: 0,
         draws: 0,
+        humanWins: 1,
         bestScore: 32,
         subscription: paid(),
       }),
@@ -1945,6 +1956,7 @@ describe('partners and payments - the money boundary', () => {
     wins: 0,
     losses: 0,
     draws: 0,
+    humanWins: 0,
     xp: 0,
     coins: 0,
     totalReps: 0,
@@ -2134,6 +2146,7 @@ describe('onboarding and the username hole', () => {
     wins: 0,
     losses: 0,
     draws: 0,
+    humanWins: 0,
     xp: 0,
     coins: 0,
     totalReps: 0,
@@ -2368,6 +2381,283 @@ describe('pro applications', () => {
     await assertSucceeds(getDoc(doc(dbOf(P2), 'partnerApplications', P1)));
     await assertSucceeds(
       updateDoc(doc(dbOf(P2), 'partnerApplications', P1), { status: 'approved' }),
+    );
+  });
+});
+
+describe('bot battles - the seat that opens, and how far', () => {
+  /**
+   * A bot has no account, so its opponent's own browser writes both sides.
+   * That is a real concession and it is deliberately narrow: only on a battle
+   * that declared botLevel at creation, and only from its creator.
+   *
+   * The compensating control is humanWins — the counter the world ranking is
+   * built on, which a bot battle never moves.
+   */
+
+  const botBattle = (over = {}) =>
+    baseBattle({
+      botLevel: 'normal',
+      botSeed: 42,
+      ...over,
+    });
+
+  it('accepts a battle that declares itself a training battle', async () => {
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'battles', BID), {
+        ...createPayload(),
+        botLevel: 'normal',
+        botSeed: 42,
+      }),
+    );
+  });
+
+  it('REFUSES an invented difficulty', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'battles', BID), {
+        ...createPayload(),
+        botLevel: 'impossible',
+      }),
+    );
+  });
+
+  it('lets the creator seat the bot', async () => {
+    await seed(botBattle());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2: 'bot',
+        players: [P1, 'bot'],
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('REFUSES seating a bot into an ordinary battle', async () => {
+    // THE containment test. Without botLevel there is no carve-out, so an
+    // ordinary match cannot have its opponent seat written by one player.
+    await seed(baseBattle());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2: 'bot',
+        players: [P1, 'bot'],
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('REFUSES turning an existing battle into a bot battle', async () => {
+    // botLevel is write-once by construction: no update rule names it, so it
+    // cannot be added later to unlock the opponent seat.
+    await seed(baseBattle());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), { botLevel: 'normal' }),
+    );
+  });
+
+  it('REFUSES seating a real account in the bot slot', async () => {
+    // The carve-out accepts the literal 'bot' and nothing else, so it cannot
+    // be used to drag someone who never consented into a match.
+    await seed(botBattle());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2: P2,
+        players: [P1, P2],
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('REFUSES a stranger seating the bot', async () => {
+    await seed(botBattle());
+    await assertFails(
+      updateDoc(doc(dbOf(P3), 'battles', BID), {
+        player2: 'bot',
+        players: [P3, 'bot'],
+        status: 'ready',
+      }),
+    );
+  });
+
+  it('lets the driver ready and score the bot, within the usual limits', async () => {
+    // 10s in, not 1: the first 3 seconds are the countdown, during which the
+    // score window is shut and this write is legitimately denied.
+    await seedLive(10, {
+      botLevel: 'normal',
+      botSeed: 42,
+      player2: 'bot',
+      players: [P1, 'bot'],
+      player1Ready: true,
+      player2Ready: true,
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2Score: 12,
+        player2Final: false,
+        player2Meta: { autoReps: 12, manualAdjust: 0, source: 'camera' },
+      }),
+    );
+  });
+
+  it('holds the bot to the same score ceiling as a human', async () => {
+    await seedLive(10, {
+      botLevel: 'normal',
+      player2: 'bot',
+      players: [P1, 'bot'],
+      player1Ready: true,
+      player2Ready: true,
+    });
+
+    // Above maxJump in one write.
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2Score: 100,
+        player2Final: false,
+        player2Meta: { autoReps: 100, manualAdjust: 0, source: 'camera' },
+      }),
+    );
+  });
+
+  it('will not let the bot score go backwards', async () => {
+    await seedLive(10, {
+      botLevel: 'normal',
+      player2: 'bot',
+      players: [P1, 'bot'],
+      player1Ready: true,
+      player2Ready: true,
+      player2Score: 20,
+      player2Meta: { autoReps: 20, manualAdjust: 0, source: 'camera' },
+    });
+
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2Score: 5,
+        player2Final: false,
+        player2Meta: { autoReps: 5, manualAdjust: 0, source: 'camera' },
+      }),
+    );
+  });
+
+  it('REFUSES writing an opponent score in an ordinary battle', async () => {
+    // The carve-out must not have widened the human path by accident.
+    await seedLive(10, {
+      player2: P2,
+      players: [P1, P2],
+      player1Ready: true,
+      player2Ready: true,
+    });
+
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'battles', BID), {
+        player2Score: 12,
+        player2Final: false,
+        player2Meta: { autoReps: 12, manualAdjust: 0, source: 'camera' },
+      }),
+    );
+  });
+});
+
+describe('humanWins - the counter the ranking is built on', () => {
+  const FINISHED = 3 + 60 + 5;
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    humanWins: 0,
+    xp: 0,
+    coins: 0,
+    totalReps: 0,
+    battlesPlayed: 0,
+    bestScore: 0,
+    ...over,
+  });
+
+  /** P1 wins 32-27. */
+  const settle = (over = {}) => ({
+    pendingBattleId: null,
+    battlesPlayed: 1,
+    xp: 164,
+    coins: 13,
+    totalReps: 32,
+    wins: 1,
+    losses: 0,
+    draws: 0,
+    humanWins: 1,
+    bestScore: 32,
+    ...over,
+  });
+
+  async function seedFinished(over = {}) {
+    await seedLive(FINISHED, {
+      status: 'finished',
+      player1Score: 32,
+      player2Score: 27,
+      player1Meta: { autoReps: 32, manualAdjust: 0, source: 'camera' },
+      player2Meta: { autoReps: 27, manualAdjust: 0, source: 'camera' },
+      winner: P1,
+      endReason: 'time',
+      endedAt: Timestamp.now(),
+      ...over,
+    });
+  }
+
+  it('counts a win over a real opponent', async () => {
+    await seedFinished();
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), settle()),
+    );
+  });
+
+  it('does NOT count a win over a bot', async () => {
+    // The whole point. XP and coins are still credited below; only the
+    // ranking counter stays put.
+    await seedFinished({
+      botLevel: 'normal',
+      player2: 'bot',
+      players: [P1, 'bot'],
+    });
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), settle({ humanWins: 1 })),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), settle({ humanWins: 0 })),
+    );
+  });
+
+  it('still pays XP and coins for a bot battle', async () => {
+    // The player did the reps. Only the ranking is protected.
+    await seedFinished({
+      botLevel: 'normal',
+      player2: 'bot',
+      players: [P1, 'bot'],
+    });
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), settle({ humanWins: 0 })),
+    );
+  });
+
+  it('REFUSES inflating humanWins on its own', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { humanWins: 99 }),
+    );
+  });
+
+  it('does not count a loss or a draw', async () => {
+    await seedFinished({ winner: P2 });
+    await consoleWrite('users/' + P1, profile({ pendingBattleId: BID }));
+    await assertFails(
+      updateDoc(
+        doc(dbOf(P1), 'users', P1),
+        settle({ wins: 0, losses: 1, humanWins: 1, xp: 104, coins: 11 }),
+      ),
     );
   });
 });

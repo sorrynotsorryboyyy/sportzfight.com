@@ -27,6 +27,7 @@ export interface RankedPlayer {
   uid: string;
   username: string;
   avatar: string | null;
+  /** Wins over real opponents — what the board is ordered by. */
   wins: number;
   losses: number;
   totalReps: number;
@@ -45,7 +46,9 @@ const toRanked = (
   uid: id,
   username: d.username,
   avatar: d.avatar ?? null,
-  wins: d.wins ?? 0,
+  // The ranked figure, not the profile total: showing `wins` here while
+  // ordering on humanWins would produce a board that looks mis-sorted.
+  wins: d.humanWins ?? 0,
   losses: d.losses ?? 0,
   totalReps: d.totalReps ?? 0,
   xp: d.xp ?? 0,
@@ -54,11 +57,16 @@ const toRanked = (
 });
 
 /**
- * Top players by wins, then total pushups as the tiebreak.
+ * Top players by wins over real opponents, then total reps as the tiebreak.
+ *
+ * Deliberately `humanWins`, not `wins`. A training battle against a bot still
+ * credits a win to the profile — the player did the reps — but the bot is
+ * driven by that player's own browser, so its score is forgeable. Ranking on
+ * `wins` would hand anyone the top spot.
  */
 export async function topPlayers(max = 50): Promise<RankedPlayer[]> {
   try {
-    // Ordered by wins then reps, with NO inequality filter. Firestore forces an
+    // Ordered by humanWins then reps, with NO inequality filter. Firestore forces an
     // inequality field to lead the ordering, so `where(battlesPlayed > 0)`
     // would rank by battles played rather than by wins — the wrong board.
     // Accounts that never played are dropped client-side instead; they sort to
@@ -66,7 +74,7 @@ export async function topPlayers(max = 50): Promise<RankedPlayer[]> {
     const snap = await getDocs(
       query(
         collection(db(), 'users'),
-        orderBy('wins', 'desc'),
+        orderBy('humanWins', 'desc'),
         orderBy('totalReps', 'desc'),
         fbLimit(max),
       ),
@@ -90,7 +98,7 @@ export async function topPlayers(max = 50): Promise<RankedPlayer[]> {
  * rather than a full scan.
  */
 export async function rankOf(
-  wins: number,
+  humanWins: number,
   battlesPlayed: number,
 ): Promise<number | null> {
   if (battlesPlayed <= 0) return null;
@@ -98,7 +106,7 @@ export async function rankOf(
     const ahead = await getCountFromServer(
       query(
         collection(db(), 'users'),
-        where('wins', '>', wins),
+        where('humanWins', '>', humanWins),
       ),
     );
     return ahead.data().count + 1;

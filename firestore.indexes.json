@@ -109,6 +109,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "humanWins",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "totalReps",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

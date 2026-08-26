@@ -33,7 +33,7 @@ export default function LeaderboardPage() {
     if (players.some((p) => p.uid === user.uid)) return;
 
     let alive = true;
-    void rankOf(profile.wins ?? 0, profile.battlesPlayed ?? 0).then((r) => {
+    void rankOf(profile.humanWins ?? 0, profile.battlesPlayed ?? 0).then((r) => {
       if (alive) setMyRank(r);
     });
     return () => {
@@ -95,7 +95,8 @@ export default function LeaderboardPage() {
                     uid: user.uid,
                     username: profile.username,
                     avatar: profile.avatar ?? null,
-                    wins: profile.wins ?? 0,
+                    // The ranked figure, matching every other row.
+                    wins: profile.humanWins ?? 0,
                     losses: profile.losses ?? 0,
                     totalReps: profile.totalReps ?? 0,
                     xp: profile.xp ?? 0,

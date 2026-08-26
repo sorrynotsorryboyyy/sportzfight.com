@@ -106,6 +106,10 @@ service cloud.firestore {
                : battleOf(bid).player2Score;
     }
     function wonBy(bid, uid)  { return battleOf(bid).winner == uid; }
+    /** A win over a real account — the bot seat is the literal 'bot'. */
+    function humanWinOf(bid, uid) {
+      return battleOf(bid).winner == uid && battleOf(bid).player2 != 'bot';
+    }
     function drawnBy(bid)     { return battleOf(bid).winner == 'draw'; }
     function xpAward(bid, uid) {
       return (drawnBy(bid) ? xpDraw() : wonBy(bid, uid) ? xpWin() : xpLoss())
@@ -226,7 +230,7 @@ service cloud.firestore {
         return u().get('pendingBattleId', null) != null
             && creditableBattle(bid(), userId)
             && touched().hasOnly([
-                 'pendingBattleId', 'wins', 'losses', 'draws',
+                 'pendingBattleId', 'wins', 'losses', 'draws', 'humanWins',
                  'xp', 'coins', 'totalReps', 'battlesPlayed', 'bestScore'])
             && nu().pendingBattleId == null
             && bumped('battlesPlayed', 1)
@@ -240,6 +244,21 @@ service cloud.firestore {
             && bumped('wins',   drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 1 : 0))
             && bumped('losses', drawnBy(bid()) ? 0 : (wonBy(bid(), userId) ? 0 : 1))
             && bumped('draws',  drawnBy(bid()) ? 1 : 0)
+            /*
+             * The counter the world ranking is built on.
+             *
+             * A bot battle credits XP, coins and a `wins` increment — the
+             * player earned those. But the bot is driven by that same player's
+             * browser, so its score is forgeable, and a ranking built on `wins`
+             * would be too. `humanWins` only ever moves when the opponent is a
+             * real account, and the leaderboard orders on it.
+             *
+             * Tested against player2 rather than a second botLevel lookup:
+             * `battleOf()` is memoised per evaluation, but each extra field
+             * access still counts toward Firestore's 1000-expression budget,
+             * and this rule was already close enough to it to start failing.
+             */
+            && bumped('humanWins', humanWinOf(bid(), userId) ? 1 : 0)
             // A personal best only ever ratchets upward.
             && now_('bestScore') == (repsOf(bid(), userId) > was('bestScore')
                                        ? repsOf(bid(), userId)
@@ -540,7 +559,31 @@ service cloud.firestore {
         && n().endReason == null
         && n().createdAt == request.time
         && n().startedAt == null
-        && n().endedAt == null;
+        && n().endedAt == null
+        // A bot battle declares itself at birth. Write-once by construction:
+        // no update rule touches botLevel, so an ordinary battle can never be
+        // converted into one to unlock the opponent's seat.
+        && (!('botLevel' in n())
+              || n().botLevel in ['easy', 'normal', 'hard']);
+
+      /**
+       * A training battle against a bot.
+       *
+       * `botLevel` is set at creation and never changes; there is no rule that
+       * writes it after the fact, so a battle cannot become a bot battle once
+       * a human has joined it.
+       */
+      function isBotBattle() { return d().get('botLevel', null) != null; }
+
+      /**
+       * The human seat in a bot battle.
+       *
+       * The bot has no account, so its opponent's browser writes both sides.
+       * That is a deliberate, contained concession: it means the bot's score is
+       * forgeable, which is exactly why bot wins never reach the world ranking
+       * (see humanWins in validSettle).
+       */
+      function drivesBot() { return isBotBattle() && isP1(); }
 
       // ---------------- JOIN ----------------
       // Compare-and-swap on player2. Rules are evaluated against the committed
@@ -558,15 +601,32 @@ service cloud.firestore {
           && onlyTouches(['player2', 'players', 'status', 'player2HeartbeatAt']);
       }
 
+      /**
+       * Seating the bot. Only the creator of a bot battle may do it, and only
+       * with the reserved uid — so this cannot be used to seat a real account
+       * that never consented, nor to hijack an ordinary battle.
+       */
+      function validBotJoin() {
+        return isBotBattle()
+          && st() == 'waiting'
+          && d().player2 == null
+          && isP1()
+          && n().player2 == 'bot'
+          && n().players == [d().player1, 'bot']
+          && n().status == 'ready'
+          && onlyTouches(['player2', 'players', 'status']);
+      }
+
       // ---------------- READY TOGGLES ----------------
       function validReady() {
         return st() in ['waiting', 'ready']
           && d().startedAt == null
           && heartbeatsHonest()
           && (
-               (isP1() && onlyTouches(['player1Ready', 'player1HeartbeatAt'])
-                       && n().player1Ready is bool)
-            || (isP2() && onlyTouches(['player2Ready', 'player2HeartbeatAt'])
+               (onlyTouches(['player1Ready', 'player1HeartbeatAt'])
+                       && isP1() && n().player1Ready is bool)
+            || (onlyTouches(['player2Ready', 'player2HeartbeatAt'])
+                       && (isP2() || drivesBot())
                        && n().player2Ready is bool)
              );
       }
@@ -614,16 +674,25 @@ service cloud.firestore {
         return st() == 'live'
           && withinScoreWindow()
           && (
-               (isP1()
-                 && onlyTouches(['player1Score', 'player1Final',
-                                 'player1Meta', 'player1HeartbeatAt'])
+               (onlyTouches(['player1Score', 'player1Final',
+                             'player1Meta', 'player1HeartbeatAt'])
+                 && isP1()
                  && scoreOk(d().player1Score, n().player1Score)
                  && n().player1Final is bool
                  && d().player1Final == false   // the final flush latches once
                  && metaOk(n().player1Meta, n().player1Score))
-            || (isP2()
-                 && onlyTouches(['player2Score', 'player2Final',
-                                 'player2Meta', 'player2HeartbeatAt'])
+            // Player 2's score: written by player 2, or by player 1 when the
+            // opponent is a bot. Identical checks either way.
+            //
+            // The field test comes FIRST deliberately. Firestore caps a request
+            // at 1000 evaluated expressions, and putting the identity checks
+            // ahead of it spent the budget re-reading the document on every
+            // branch — the bot's write was denied with what looks exactly like
+            // a permissions bug. Cheapest discriminator first, and && short
+            // circuits the rest.
+            || (onlyTouches(['player2Score', 'player2Final',
+                             'player2Meta', 'player2HeartbeatAt'])
+                 && (isP2() || drivesBot())
                  && scoreOk(d().player2Score, n().player2Score)
                  && n().player2Final is bool
                  && d().player2Final == false
@@ -705,12 +774,23 @@ service cloud.firestore {
                               + duration.value(abandonWaitSecs(), 's') );
       }
 
+      /*
+       * Ordered by frequency, and that ordering is load-bearing.
+       *
+       * Firestore evaluates the branches in sequence until one matches, with a
+       * hard ceiling of 1000 expressions for the whole request. Scores and
+       * heartbeats are by far the most common writes, and with them buried
+       * behind the rarer lifecycle branches the bot's score write ran out of
+       * budget and was denied — a failure that looks exactly like a
+       * permissions bug.
+       */
       allow update: if signedIn() && (
-           validJoin()
-        || validReady()
-        || validStart()
-        || validScore()
+           validScore()
         || validHeartbeat()
+        || validReady()
+        || validJoin()
+        || validBotJoin()
+        || validStart()
         || validFinish()
         || validCancel()
       );

@@ -1,5 +1,6 @@
 'use client';
 
+import type { BotLevel } from '@/lib/battle/bot';
 import {
   collection,
   doc,
@@ -59,15 +60,43 @@ export const battleRef = (id: string) => doc(db(), 'battles', id);
  * searcher for the few hundred ms until the subscription resolves. The rules
  * require this field to equal request.time.
  */
+/**
+ * Seat the bot in a training battle.
+ *
+ * Written by the human's own browser, because the bot has no account. The
+ * rules only allow this on a battle that declared `botLevel` at creation and
+ * only from its creator, so it cannot be used to seat anyone else.
+ */
+export async function joinAsBot(battleId: string, uid: string): Promise<void> {
+  const { updateDoc } = await import('firebase/firestore');
+  await updateDoc(doc(battlesCol(), battleId), {
+    player2: BOT_UID,
+    players: [uid, BOT_UID],
+    status: 'ready',
+  });
+}
+
+/** The reserved opponent id. Never a real account: uids are 28 chars. */
+export const BOT_UID = 'bot';
+
 export async function createBattle(
   uid: string,
   exercise = DEFAULT_EXERCISE,
   durationSecs = DEFAULT_DURATION_SECS,
+  /**
+   * Set to make this a training battle against a bot.
+   *
+   * Written at creation and never again — no update rule touches botLevel, so
+   * an ordinary battle cannot be converted into one to unlock the opponent's
+   * seat.
+   */
+  bot?: { level: BotLevel; seed: number },
 ): Promise<string> {
   const ref = doc(battlesCol());
   const { setDoc } = await import('firebase/firestore');
 
   await setDoc(ref, {
+    ...(bot ? { botLevel: bot.level, botSeed: bot.seed } : {}),
     exercise,
     durationSecs,
     status: 'waiting',

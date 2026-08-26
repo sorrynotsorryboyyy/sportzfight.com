@@ -194,7 +194,14 @@ export async function findOrCreateBattle(
     // ---- phase B: post our own, then look again ----
     let myId: string;
     try {
-      myId = await createBattle(uid, exercise, durationSecs);
+      // Marked bot-capable at birth: a battle cannot become one later (no
+      // update rule touches botLevel), so the decision has to be made here.
+      // A real player joining first simply takes the seat and the marker is
+      // never acted on.
+      myId = await createBattle(uid, exercise, durationSecs, {
+        level: 'normal',
+        seed: Math.floor(Math.random() * 1_000_000),
+      });
     } catch {
       continue; // transient write failure: start the round over
     }

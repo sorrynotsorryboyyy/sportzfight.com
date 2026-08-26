@@ -1,3 +1,4 @@
+import type { BotLevel } from './bot';
 import type { AccountType, Experience, Goal } from '@/lib/profile/onboarding';
 import type { Subscription } from '@/lib/subscription';
 import type { Timestamp } from 'firebase/firestore';
@@ -57,6 +58,15 @@ export interface BattleDoc {
   createdAt: Timestamp | null;
   startedAt: Timestamp | null;   // the single source of truth for the clock
   endedAt: Timestamp | null;
+
+  /**
+   * Present only on training battles against a bot. Set at creation and never
+   * written again, so an ordinary battle cannot be turned into one to unlock
+   * the opponent's seat.
+   */
+  botLevel?: BotLevel | null;
+  /** Seeds the bot's curve, so a battle can be replayed when debugging. */
+  botSeed?: number | null;
 }
 
 export type BattleWithId = BattleDoc & { id: string };
@@ -80,6 +90,14 @@ export interface UserDoc {
   wins?: number;
   losses?: number;
   draws?: number;
+  /**
+   * Wins against a real account, and the only counter the world ranking uses.
+   *
+   * A bot battle still credits `wins` — the player did the reps — but the bot
+   * is driven by that player's own browser, so its score is forgeable. Ranking
+   * on `wins` would make the leaderboard forgeable with it.
+   */
+  humanWins?: number;
   xp?: number;
   coins?: number;
   totalReps?: number;

@@ -25,6 +25,7 @@ export function OpponentBar({
   connected,
   ready,
   waiting = false,
+  isBot = false,
   className,
 }: {
   name: string;
@@ -34,6 +35,8 @@ export function OpponentBar({
   connected: boolean;
   ready?: boolean;
   waiting?: boolean;
+  /** Training opponent: disclosed, never disguised. */
+  isBot?: boolean;
   className?: string;
 }) {
   const [popping, setPopping] = useState(false);
@@ -71,8 +74,16 @@ export function OpponentBar({
       )}
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold leading-tight text-ink-200">
-          {name}
+        <p className="flex items-center gap-1.5 text-sm font-bold leading-tight text-ink-200">
+          <span className="truncate">{name}</span>
+          {/* Disclosed, never disguised. A player who works out later that
+              they were fighting a robot feels tricked — and they would work it
+              out, because a bot never answers a rematch. */}
+          {isBot && (
+            <span className="shrink-0 rounded-full bg-cyan-glow/15 px-1.5 py-0.5 text-3xs font-black uppercase tracking-widest text-cyan-glow">
+              Entraînement
+            </span>
+          )}
         </p>
         <p className="flex items-center gap-1 text-3xs font-semibold uppercase tracking-widest text-ink-500">
           <span

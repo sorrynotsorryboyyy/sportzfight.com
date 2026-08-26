@@ -40,7 +40,7 @@ export function TopWorld({
     if (!showSelf || !uid || !profile || !players) return;
     if (players.some((p) => p.uid === uid)) return;
     let alive = true;
-    void rankOf(profile.wins ?? 0, profile.battlesPlayed ?? 0).then((r) => {
+    void rankOf(profile.humanWins ?? 0, profile.battlesPlayed ?? 0).then((r) => {
       if (alive) setMyRank(r);
     });
     return () => {
