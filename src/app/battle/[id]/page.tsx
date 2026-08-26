@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { doc, getDoc } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/Button';
@@ -66,6 +67,63 @@ function useProfiles(p1: string | null, p2: string | null) {
   }, [p1, p2]);
 
   return profiles;
+}
+
+/**
+ * The two ways a battle ends before it starts: cancelled, or never found.
+ *
+ * Both used to be dead ends — cancelled offered only "find another opponent",
+ * which left anyone who just wanted out with no way back. Both now return home
+ * on their own and still offer the buttons, so neither the delay nor a click is
+ * the single escape route.
+ */
+function DeadEndScreen({
+  title,
+  detail,
+  offerRematch = false,
+}: {
+  title: string;
+  detail: string;
+  offerRematch?: boolean;
+}) {
+  const router = useRouter();
+  const [seconds, setSeconds] = useState(5);
+
+  useEffect(() => {
+    const tick = setInterval(() => setSeconds((s) => Math.max(0, s - 1)), 1000);
+    const go = setTimeout(() => router.replace('/'), 5000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(go);
+    };
+  }, [router]);
+
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
+      <Logo className="text-2xl" />
+      <div>
+        <h1 className="text-3xl font-black uppercase tracking-tighter">
+          {title}
+        </h1>
+        <p className="mt-2 text-ink-400">{detail}</p>
+        <p className="mt-1 text-sm text-ink-500">
+          Retour à l’accueil dans {seconds}s…
+        </p>
+      </div>
+      <div className="flex flex-col gap-3">
+        {offerRematch && (
+          <Link href="/matchmaking">
+            <Button>Chercher un autre adversaire</Button>
+          </Link>
+        )}
+        <Link href="/">
+          <Button variant={offerRematch ? 'ghost' : 'primary'}>
+            Retour à l’accueil
+          </Button>
+        </Link>
+      </div>
+    </main>
+  );
 }
 
 export default function BattlePage({
@@ -160,16 +218,10 @@ export default function BattlePage({
 
   if (error || !battle) {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
-        <Logo className="text-2xl" />
-        <h1 className="text-3xl font-black uppercase tracking-tighter">
-          Battle introuvable
-        </h1>
-        <p className="text-ink-400">Ce battle n’existe pas ou a été supprimé.</p>
-        <Link href="/">
-          <Button>Retour à l’accueil</Button>
-        </Link>
-      </main>
+      <DeadEndScreen
+        title="Battle introuvable"
+        detail="Ce battle n’existe pas ou a été supprimé."
+      />
     );
   }
 
@@ -206,15 +258,11 @@ export default function BattlePage({
 
   if (battle.status === 'cancelled') {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
-        <Logo className="text-2xl" />
-        <h1 className="text-3xl font-black uppercase tracking-tighter">
-          Battle annulé
-        </h1>
-        <Link href="/matchmaking">
-          <Button>Chercher un autre adversaire</Button>
-        </Link>
-      </main>
+      <DeadEndScreen
+        title="Battle annulé"
+        detail="Ton adversaire a quitté ou le battle a expiré."
+        offerRematch
+      />
     );
   }
 
@@ -383,13 +431,12 @@ export default function BattlePage({
         {/* top: you only. Same hierarchy as the in-play screen, so the two
             phases read as one continuous experience. */}
         <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-12">
-          <div className="pointer-events-auto mb-4 flex items-center justify-between">
+          {/* Just the logo: the player picked the mode a moment ago, so
+              repeating it here only competes with the camera. */}
+          <div className="pointer-events-auto mb-4">
             <Link href="/">
               <Logo className="text-lg" />
             </Link>
-            <span className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-400">
-              {exercise.emoji} {exercise.label} · {battle.durationSecs}s
-            </span>
           </div>
 
           <p className="truncate text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">

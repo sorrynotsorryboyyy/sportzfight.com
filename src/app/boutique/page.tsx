@@ -18,9 +18,14 @@ import { cn } from '@/lib/utils/cn';
  * gives the $SC balance a destination and lets the pricing be judged before it
  * is wired up.
  *
- * Every perk below is cosmetic or convenience. Selling a competitive advantage
- * would turn a public leaderboard into pay-to-win and wreck the credibility of
- * the ranking — so nothing here touches scoring, XP or matchmaking.
+ * The line that must never move: nothing sold here touches scoring, XP or
+ * matchmaking. Selling a competitive advantage would turn a public leaderboard
+ * into pay-to-win and wreck the credibility of the ranking.
+ *
+ * Support does unlock extra exercises, which is a real functional limit rather
+ * than a cosmetic one. That is a deliberate choice and it is stated plainly on
+ * the page: the core — pushups and squats, the leaderboard, every battle — is
+ * free, and an unlocked mode gives no edge in the modes everyone else plays.
  */
 
 interface Plan {
@@ -49,17 +54,17 @@ const PLANS: Plan[] = [
     ],
   },
   {
-    id: 'max',
-    name: 'Max',
+    id: 'soutien',
+    name: 'Soutien',
     price: '9,99 €',
-    tagline: 'Tout Premium, plus la personnalisation complète.',
+    tagline: 'Tous les modes débloqués, et tu fais vivre le projet.',
     accent: 'gold',
     perks: [
+      'Tous les modes débloqués dès leur sortie : abdos, burpees, tractions…',
+      'Ton abonnement finance leur développement',
       'Tout ce que contient Premium',
       'Pseudo coloré et cadres animés',
-      'Thèmes d’interface exclusifs',
-      'Accès anticipé aux nouveaux exercices',
-      'Soutien direct au développement',
+      'Badge Soutien sur ton profil et au classement',
     ],
   },
 ];
@@ -162,7 +167,8 @@ export default function ShopPage() {
             Boutique
           </h1>
           <p className="mt-2 text-sm text-ink-400">
-            Soutiens le projet et personnalise ton profil.
+            Les pompes et les squats sont gratuits, pour toujours. Le reste,
+            c’est toi qui le rends possible.
           </p>
         </div>
 
@@ -171,7 +177,8 @@ export default function ShopPage() {
           <p className="mt-1.5 text-sm leading-relaxed text-ink-300">
             Les abonnements arrivent prochainement. Rien n’est encore
             achetable — les formules ci-dessous sont là pour te donner un
-            aperçu.
+            aperçu. Les modes au-delà des pompes et des squats sont encore en
+            développement : le Soutien te les ouvrira le jour de leur sortie.
           </p>
         </Card>
 
@@ -184,8 +191,9 @@ export default function ShopPage() {
         <Card className="mt-1">
           <p className="text-xs leading-relaxed text-ink-500">
             Aucun avantage payant n’influence les scores, l’XP ou le
-            classement. Un abonnement change l’apparence et le confort, jamais
-            le résultat d’un battle.
+            classement : à exercice égal, un abonné et un joueur gratuit sont
+            exactement à armes égales. Le Soutien débloque des modes
+            supplémentaires, jamais un avantage dans un battle.
           </p>
         </Card>
       </main>

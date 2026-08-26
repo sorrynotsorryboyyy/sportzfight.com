@@ -1,4 +1,5 @@
 import { createPushupDetector } from './detectors/pushup';
+import { createSquatDetector } from './detectors/squat';
 import { createManualDetector } from './detectors/manual';
 import type { ExerciseDetector } from './types';
 
@@ -38,8 +39,6 @@ export const EXERCISES: Record<string, ExerciseSpec> = {
     createManual: () => createManualDetector('pushups', 'Pompes'),
     available: true,
   },
-  // Planned. The battle flow already supports these the moment a detector
-  // exists; only `create` and `available` need filling in.
   squats: {
     id: 'squats',
     label: 'Squats',
@@ -47,10 +46,12 @@ export const EXERCISES: Record<string, ExerciseSpec> = {
     emoji: '🦵',
     setupHint:
       'Place la caméra de côté, à ~2 m, de la tête aux pieds.',
-    create: () => createManualDetector('squats', 'Squats'),
+    create: createSquatDetector,
     createManual: () => createManualDetector('squats', 'Squats'),
-    available: false,
+    available: true,
   },
+  // Planned. The battle flow already supports these the moment a detector
+  // exists; only `create` and `available` need filling in.
   situps: {
     id: 'situps',
     label: 'Abdos',
