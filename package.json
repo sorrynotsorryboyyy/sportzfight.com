@@ -9,17 +9,19 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "emu": "firebase emulators:start --only firestore,auth --project demo-sportzfight",
-    "test": "vitest run tests/machine.test.ts tests/pushup.test.ts tests/scoresync.test.ts tests/progression.test.ts tests/role.test.ts tests/contract.test.ts",
+    "test": "vitest run --exclude \"tests/{rules,matchmaking,e2e-flow}.test.ts\"",
     "test:rules": "firebase emulators:exec --only firestore --project demo-sportzfight \"vitest run tests/rules.test.ts\"",
     "test:e2e": "vitest run tests/e2e-flow.test.ts",
     "test:all": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run\"",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
     "setup:mediapipe": "node scripts/setup-mediapipe.mjs",
     "postinstall": "node scripts/setup-mediapipe.mjs",
-    "test:mm": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run tests/matchmaking.test.ts\""
+    "test:mm": "firebase emulators:exec --only firestore,auth --project demo-sportzfight \"vitest run tests/matchmaking.test.ts\"",
+    "check:launch": "vitest run tests/legal.test.ts --config vitest.launch.mts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
+    "@sentry/nextjs": "^10.71.0",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",
     "next": "16.3.2",

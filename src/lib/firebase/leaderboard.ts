@@ -1,5 +1,6 @@
 'use client';
 
+import { reportSilent } from '@/lib/monitoring/sentry';
 import type { Subscription } from '@/lib/subscription';
 import {
   collection,
@@ -75,7 +76,8 @@ export async function topPlayers(max = 50): Promise<RankedPlayer[]> {
       .map((d) => ({ id: d.id, data: d.data() as UserDoc }))
       .filter((r) => (r.data.battlesPlayed ?? 0) > 0)
       .map((r, i) => toRanked(r.id, r.data, i + 1));
-  } catch {
+  } catch (e) {
+    reportSilent(e, 'leaderboard');
     // Missing index or offline: the UI treats this as an empty board rather
     // than an error, because a leaderboard is never load-bearing.
     return [];

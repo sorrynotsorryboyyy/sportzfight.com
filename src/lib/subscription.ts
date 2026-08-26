@@ -67,9 +67,48 @@ export function activePlan(
   return isActive(sub, now) ? sub!.plan : null;
 }
 
-/** Does this account get the full battle history rather than the last 20? */
+/**
+ * The perks, one predicate each.
+ *
+ * All four are cosmetic or convenience. NONE of them touches a score, XP, a
+ * rank or matchmaking — that is the line the shop promises and the reason the
+ * leaderboard is worth anything. tests/perks.test.ts asserts it.
+ */
+
+/** Full battle history rather than the last 20. */
 export function hasFullHistory(sub: Subscription | null | undefined): boolean {
   return isActive(sub);
+}
+
+/** A coloured ring around the avatar, in the plan's colour. */
+export function hasAvatarFrame(sub: Subscription | null | undefined): boolean {
+  return isActive(sub);
+}
+
+/** The username rendered in the plan's colour on the leaderboard. */
+export function hasColouredName(sub: Subscription | null | undefined): boolean {
+  return isActive(sub);
+}
+
+/** The extra breakdown on /compte: ratios, averages, per-exercise split. */
+export function hasDetailedStats(sub: Subscription | null | undefined): boolean {
+  return isActive(sub);
+}
+
+/**
+ * Tailwind classes for the plan's accent, or null.
+ *
+ * One place, so the frame, the name and the badge cannot drift apart into
+ * three slightly different golds.
+ */
+export function planAccent(
+  sub: Subscription | null | undefined,
+): { ring: string; text: string } | null {
+  const plan = activePlan(sub);
+  if (!plan) return null;
+  return plan === 'premium'
+    ? { ring: 'ring-volt-500', text: 'text-volt-400' }
+    : { ring: 'ring-gold', text: 'text-gold' };
 }
 
 /** Label for the badge shown on the profile and the leaderboard. */

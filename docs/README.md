@@ -26,7 +26,7 @@ n'existe aucun code capable de la transmettre.
 
 ## État actuel
 
-- 217 tests automatisés (101 règles, 17 contrat, 5 matchmaking, 9 bout-en-bout,
+- 469 tests automatisés (176 règles, contrat, matchmaking, bout-en-bout,
   le reste en logique pure)
 - Un seul exercice jouable : les pompes. Quatre autres sont déclarés dans le
   registre et attendent leur détecteur.

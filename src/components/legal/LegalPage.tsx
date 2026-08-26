@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { LEGAL, type LegalIdentity } from '@/lib/legal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Footer } from '@/components/ui/Footer';
 
@@ -73,7 +74,20 @@ export function Section({
  * Rendered loudly on purpose: a placeholder that looks like real text is how a
  * site goes live claiming to be published by "[Nom]".
  */
-export function Fill({ children }: { children: ReactNode }) {
+export function Fill({
+  field,
+  children,
+}: {
+  /** Which entry of LEGAL to print. */
+  field: keyof LegalIdentity;
+  /** What to ask for while it is still empty. */
+  children: ReactNode;
+}) {
+  const value = LEGAL[field];
+  if (value.trim()) return <>{value}</>;
+
+  // Loud on purpose: a placeholder that reads like prose is how a site ships
+  // claiming to be published by "[Nom]".
   return (
     <mark className="rounded bg-flare-500/20 px-1.5 py-0.5 font-bold text-flare-400">
       [À COMPLÉTER : {children}]

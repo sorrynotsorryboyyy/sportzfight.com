@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { reportSilent } from '@/lib/monitoring/sentry';
 import { Button } from '@/components/ui/Button';
 import { Logo } from '@/components/ui/Logo';
 
@@ -23,6 +25,12 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Report before rendering: this boundary is the last place an error is
+  // visible at all, and the digest below is useless without the stack.
+  useEffect(() => {
+    reportSilent(error, 'error-boundary');
+  }, [error]);
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <Logo className="text-2xl" />

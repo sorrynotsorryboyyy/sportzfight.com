@@ -38,13 +38,24 @@ function statusOf(s: Stripe.Subscription.Status): SubscriptionStatus {
   }
 }
 
+/**
+ * A failure Stripe should retry, as opposed to an event we legitimately ignore.
+ *
+ * The distinction decides whether a customer who paid ever gets what they paid
+ * for: answer 200 and Stripe marks the event delivered forever.
+ */
+class Retryable extends Error {}
+
 /** Mirror one Stripe subscription onto the user document. */
 async function persist(sub: Stripe.Subscription): Promise<void> {
   const db = adminDb();
-  if (!db) return;
+  // NOT a no-op: the credentials are broken, not the event. Returning here
+  // used to answer 200, so a misconfigured FIREBASE_SERVICE_ACCOUNT charged
+  // every customer and granted nothing, silently and permanently.
+  if (!db) throw new Retryable('no_admin_db');
 
   const uid = sub.metadata?.uid;
-  if (!uid) return; // Not ours, or created outside the app.
+  if (!uid) return; // Genuinely not ours: created outside the app.
 
   const item = sub.items.data[0];
   const priceId = item?.price?.id;
@@ -93,7 +104,8 @@ async function recordPayment(
   client: Stripe,
 ): Promise<void> {
   const db = adminDb();
-  if (!db) return;
+  if (!db) throw new Retryable('no_admin_db');
+  // No id means nothing to key the ledger on; Stripe always sends one.
   if (!invoice.id) return;
 
   // Nothing changed hands: a 100%-discounted or zero invoice still fires.
@@ -118,7 +130,9 @@ async function recordPayment(
       const priceId = sub.items.data[0]?.price?.id;
       plan = priceId ? planForPrice(priceId) : null;
     } catch {
-      return; // Transient Stripe failure: let the retry handle it.
+      // Swallowing this dropped the payment record — and with it the partner
+      // commission — with no trace. Let Stripe retry.
+      throw new Retryable('subscription_lookup_failed');
     }
   }
   if (!uid) return;
@@ -226,9 +240,12 @@ export async function POST(req: Request) {
         // makes Stripe retry something we will never handle.
         break;
     }
-  } catch {
-    // A write failure SHOULD be retried, so this one does return an error.
-    return NextResponse.json({ error: 'persist_failed' }, { status: 500 });
+  } catch (e) {
+    // Anything that reaches here is a failure to record something Stripe has
+    // already accepted money for. 500 makes Stripe retry for three days; 200
+    // would abandon it after the first attempt.
+    const reason = e instanceof Retryable ? e.message : 'persist_failed';
+    return NextResponse.json({ error: reason }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });

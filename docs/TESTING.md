@@ -3,7 +3,7 @@
 Checklist à dérouler **avant d'ouvrir l'app à de vrais joueurs**, et après tout
 changement touchant le battle, la progression ou les règles.
 
-Les 217 tests automatisés couvrent la logique. Ce document couvre ce qu'ils ne
+Les 469 tests automatisés couvrent la logique. Ce document couvre ce qu'ils ne
 peuvent pas voir : deux vrais appareils, une vraie caméra, un vrai corps, un
 vrai réseau.
 
@@ -24,13 +24,13 @@ vrai réseau.
 ## 1. Automatisé — le préalable
 
 ```bash
-npm run test:all      # 217 tests, émulateurs lancés automatiquement
+npm run test:all      # 469 tests, émulateurs lancés automatiquement
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-- [ ] Les 217 passent
+- [ ] Les 469 passent
 - [ ] Lint et typecheck sans erreur
 - [ ] Le build produit toutes les routes
 

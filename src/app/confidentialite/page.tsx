@@ -54,8 +54,8 @@ export default function Confidentialite() {
 
       <Section title="1. Responsable du traitement">
         <p>
-          Le responsable du traitement est <Fill>nom ou raison sociale</Fill>,
-          joignable à <Fill>adresse e-mail de contact</Fill>. Les informations
+          Le responsable du traitement est <Fill field="name">nom ou raison sociale</Fill>,
+          joignable à <Fill field="email">adresse e-mail de contact</Fill>. Les informations
           d’identification complètes figurent dans les{' '}
           <a
             href="/mentions-legales"
@@ -201,7 +201,7 @@ export default function Confidentialite() {
         <p>
           Base légale : intérêt légitime à rémunérer nos apporteurs d’affaires.
           Vous pouvez demander la suppression de ce rattachement à tout moment
-          en écrivant à <Fill>adresse e-mail de contact</Fill>.
+          en écrivant à <Fill field="email">adresse e-mail de contact</Fill>.
         </p>
       </Section>
 
@@ -279,7 +279,7 @@ export default function Confidentialite() {
           </li>
           <li>
             <strong>Effacement</strong> — écrivez à{' '}
-            <Fill>adresse e-mail de contact</Fill> ; votre compte et vos données
+            <Fill field="email">adresse e-mail de contact</Fill> ; votre compte et vos données
             seront supprimés sous 30 jours. Les battles auxquels vous avez
             participé sont conservés de façon anonymisée, car ils concernent
             aussi votre adversaire.

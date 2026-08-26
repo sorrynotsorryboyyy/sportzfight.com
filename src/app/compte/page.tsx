@@ -24,7 +24,11 @@ import { battleHistory } from '@/lib/firebase/battles';
 import { reconcileCredits } from '@/lib/firebase/stats';
 import { resumeDailyBonus } from '@/lib/firebase/daily';
 import { claimReferral } from '@/lib/partners/attribution';
-import { historyLimit } from '@/lib/subscription';
+import {
+  hasDetailedStats,
+  historyLimit,
+  planAccent,
+} from '@/lib/subscription';
 import { outcomeFor, xpFor } from '@/lib/progression/awards';
 import { getExercise } from '@/lib/exercise/registry';
 import { cn } from '@/lib/utils/cn';
@@ -121,6 +125,8 @@ export default function AccountPage() {
   // A paid plan buys the full history rather than the last 20 — one of the
   // perks the shop advertises, so it has to actually exist.
   const limit = historyLimit(profile?.subscription);
+  const detailed = hasDetailedStats(profile?.subscription);
+  const accent = planAccent(profile?.subscription);
 
   // Pay out anything the battle screen missed — a tab closed before the
   // result landed, a dropped connection, or a battle played before the XP
@@ -171,6 +177,9 @@ export default function AccountPage() {
   const draws = profile.draws ?? 0;
   const played = profile.battlesPlayed ?? 0;
   const winRate = played > 0 ? Math.round((wins / played) * 100) : 0;
+  // Guarded: a new account has played nothing, and 0/0 would render "NaN".
+  const avgReps =
+    played > 0 ? Math.round((profile.totalReps ?? 0) / played) : 0;
 
   return (
     <>
@@ -207,7 +216,12 @@ export default function AccountPage() {
             <UsernameEditor uid={uid} current={profile.username} />
           )}
           <div className="mt-2 flex items-center gap-2">
-            <Avatar src={avatar} name={profile.username} size={24} />
+            <Avatar
+              src={avatar}
+              name={profile.username}
+              size={24}
+              ring={accent?.ring}
+            />
             <Pill tone="gold" size="md" className="tnum">
               {profile.coins ?? 0} $SC
             </Pill>
@@ -237,9 +251,28 @@ export default function AccountPage() {
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2">
           <Stat label="% victoire" value={`${winRate}%`} />
-          <Stat label="Pompes" value={profile.totalReps ?? 0} />
+          <Stat label="Répétitions" value={profile.totalReps ?? 0} />
           <Stat label="Record" value={profile.bestScore ?? 0} accent="gold" />
         </div>
+
+        {/* A paid perk, and one the shop actually advertises. Cosmetic in the
+            sense that matters: it presents numbers already earned, and changes
+            none of them. */}
+        {detailed ? (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <Stat label="Moy. / battle" value={avgReps} />
+            <Stat label="Meilleure série" value={profile.streak ?? 0} accent="volt" />
+            <Stat label="Bonus reçus" value={profile.bonusCount ?? 0} accent="gold" />
+          </div>
+        ) : (
+          <Link href="/boutique" className="focus-ring mt-2 block rounded-xl">
+            <Card padding="sm" radius="md" sheen={false} className="text-center">
+              <p className="text-2xs text-ink-500">
+                Statistiques détaillées avec un abonnement
+              </p>
+            </Card>
+          </Link>
+        )}
       </section>
 
       {/* history */}

@@ -148,7 +148,7 @@ export default function CGU() {
         <p>
           Vous disposez d’un délai de quatorze jours pour vous rétracter d’un
           abonnement, sans motif, en écrivant à{' '}
-          <Fill>adresse e-mail de contact</Fill>.
+          <Fill field="email">adresse e-mail de contact</Fill>.
         </p>
         <p>
           En souscrivant, vous demandez expressément que le service commence

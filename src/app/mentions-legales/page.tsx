@@ -13,23 +13,23 @@ export default function MentionsLegales() {
     <LegalPage title="Mentions légales" updated="2026-08-26">
       <Section title="1. Éditeur du site">
         <p>
-          Le site SportzFight est édité par <Fill>nom ou raison sociale</Fill>,{' '}
-          <Fill>forme juridique — ex. micro-entreprise, SASU</Fill>, dont le
-          siège est situé <Fill>adresse complète</Fill>.
+          Le site SportzFight est édité par <Fill field="name">nom ou raison sociale</Fill>,{' '}
+          <Fill field="legalForm">forme juridique — ex. micro-entreprise, SASU</Fill>, dont le
+          siège est situé <Fill field="address">adresse complète</Fill>.
         </p>
         <ul className="ml-4 list-disc space-y-1">
           <li>
-            SIRET : <Fill>numéro SIRET</Fill>
+            SIRET : <Fill field="siret">numéro SIRET</Fill>
           </li>
           <li>
-            Numéro de TVA intracommunautaire : <Fill>n° TVA, ou « non
+            Numéro de TVA intracommunautaire : <Fill field="vat">n° TVA, ou « non
             applicable, article 293 B du CGI » en franchise en base</Fill>
           </li>
           <li>
-            Contact : <Fill>adresse e-mail de contact</Fill>
+            Contact : <Fill field="email">adresse e-mail de contact</Fill>
           </li>
           <li>
-            Directeur de la publication : <Fill>nom du directeur de
+            Directeur de la publication : <Fill field="publisher">nom du directeur de
             publication</Fill>
           </li>
         </ul>
@@ -84,7 +84,7 @@ export default function MentionsLegales() {
           <a href="/cgu" className="font-semibold text-volt-500 hover:underline">
             conditions générales d’utilisation
           </a>
-          , écrivez à <Fill>adresse e-mail de contact</Fill>. Les signalements
+          , écrivez à <Fill field="email">adresse e-mail de contact</Fill>. Les signalements
           sont traités dans les meilleurs délais.
         </p>
       </Section>
@@ -94,7 +94,7 @@ export default function MentionsLegales() {
           Conformément à l’article L. 612-1 du Code de la consommation, tout
           consommateur peut recourir gratuitement à un médiateur de la
           consommation en vue de la résolution amiable d’un litige. Médiateur
-          compétent : <Fill>nom et coordonnées du médiateur — obligatoire dès
+          compétent : <Fill field="mediator">nom et coordonnées du médiateur — obligatoire dès
           que la boutique encaisse des paiements</Fill>.
         </p>
         <p>

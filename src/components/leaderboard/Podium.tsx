@@ -3,6 +3,7 @@
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
 import { PlanBadge } from '@/components/profile/PlanBadge';
+import { planAccent } from '@/lib/subscription';
 import { cn } from '@/lib/utils/cn';
 import type { RankedPlayer } from '@/lib/firebase/leaderboard';
 
@@ -38,6 +39,8 @@ export function Podium({ players }: { players: RankedPlayer[] }) {
         const medal = medalFor(p!.rank)!;
         return (
           <div key={p!.uid} className="flex w-1/3 max-w-[8rem] flex-col items-center">
+            {/* The medal ring wins over the subscriber ring: the podium is
+                about rank, and a paid colour must never read as a placing. */}
             <Avatar src={p!.avatar} name={p!.username} size={size} ring={medal.ring} />
 
             <p className="mt-2 w-full truncate text-center text-sm font-bold text-ink-100">
@@ -74,6 +77,8 @@ export function RankRow({
   isSelf?: boolean;
 }) {
   const medal = medalFor(player.rank);
+  // Cosmetic only: the ordering above is untouched by any of this.
+  const accent = planAccent(player.subscription);
 
   return (
     <Card
@@ -96,10 +101,20 @@ export function RankRow({
         {player.rank}
       </span>
 
-      <Avatar src={player.avatar} name={player.username} size={32} />
+      <Avatar
+        src={player.avatar}
+        name={player.username}
+        size={32}
+        ring={accent?.ring}
+      />
 
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className="truncate text-sm font-semibold text-ink-100">
+        <span
+          className={cn(
+            'truncate text-sm font-semibold',
+            accent ? accent.text : 'text-ink-100',
+          )}
+        >
           {player.username}
         </span>
         {/* A label, never an advantage: it says who supports the project and

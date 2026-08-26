@@ -14,7 +14,7 @@ npm run test             # logique pure, sans émulateur
 npm run test:rules       # 101 tests de règles
 npm run test:mm          # courses de matchmaking
 npm run test:e2e         # parcours complet, vraie bataille de 60 s
-npm run test:all         # tout (217), émulateurs lancés automatiquement
+npm run test:all         # tout (469), émulateurs lancés automatiquement
 
 npm run emu              # émulateurs Firestore + Auth
 npm run deploy:rules     # règles + index vers la production

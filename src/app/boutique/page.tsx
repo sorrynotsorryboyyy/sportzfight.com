@@ -29,10 +29,11 @@ import { cn } from '@/lib/utils/cn';
  * matchmaking. Selling a competitive advantage would turn a public leaderboard
  * into pay-to-win and wreck the credibility of the ranking.
  *
- * Support does unlock extra exercises, which is a real functional limit rather
- * than a cosmetic one. That is a deliberate choice and it is stated plainly on
- * the page: the core — pushups and squats, the leaderboard, every battle — is
- * free, and an unlocked mode gives no edge in the modes everyone else plays.
+ * Every perk listed is cosmetic or convenience, and every one is implemented —
+ * checked by tests/perks.test.ts. The page previously advertised unlocked
+ * exercise modes, an avatar frame, detailed stats and a coloured name while
+ * only two of nine bullets existed. Selling that is a misrepresentation, so the
+ * list now describes exactly what ships.
  */
 
 interface Plan {
@@ -54,8 +55,8 @@ const PLANS: Plan[] = [
     accent: 'volt',
     highlight: true,
     perks: [
-      'Cadre d’avatar exclusif',
-      'Statistiques détaillées de tes battles',
+      'Cadre d’avatar au classement et sur ton profil',
+      'Statistiques détaillées : moyenne, série, bonus',
       'Historique complet (au lieu des 20 derniers)',
       'Badge Premium sur le classement',
     ],
@@ -64,14 +65,13 @@ const PLANS: Plan[] = [
     id: 'soutien',
     name: 'Soutien',
     price: '9,99 €',
-    tagline: 'Tous les modes débloqués, et tu fais vivre le projet.',
+    tagline: 'Tu fais vivre le projet, et ça se voit.',
     accent: 'gold',
     perks: [
-      'Tous les modes débloqués dès leur sortie : abdos, burpees, tractions…',
-      'Ton abonnement finance leur développement',
       'Tout ce que contient Premium',
-      'Pseudo coloré et cadres animés',
+      'Pseudo et cadre dorés au classement',
       'Badge Soutien sur ton profil et au classement',
+      'Tu finances le développement des prochains modes',
     ],
   },
 ];
