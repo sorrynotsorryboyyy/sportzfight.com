@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SignOutButton } from '@/components/profile/SignOutButton';
@@ -9,6 +10,7 @@ import { TopWorld } from '@/components/leaderboard/TopWorld';
 import { ModeGrid } from '@/components/play/ModeGrid';
 import { PlayerBar } from '@/components/profile/PlayerBar';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { claimReferral } from '@/lib/partners/attribution';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 
 /**
@@ -21,6 +23,15 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
  */
 export default function Home() {
   const { user, loading } = useAuth();
+
+  // Attribute the account to a partner if this player arrived through one.
+  // Here rather than only on /compte: the hub is where everyone lands after
+  // signing in, and an unvisited account page would lose the attribution.
+  // Idempotent — the server refuses to overwrite an existing one.
+  useEffect(() => {
+    if (!user) return;
+    void claimReferral().catch(() => {});
+  }, [user]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 

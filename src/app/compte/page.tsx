@@ -23,6 +23,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { battleHistory } from '@/lib/firebase/battles';
 import { reconcileCredits } from '@/lib/firebase/stats';
 import { resumeDailyBonus } from '@/lib/firebase/daily';
+import { claimReferral } from '@/lib/partners/attribution';
 import { historyLimit } from '@/lib/subscription';
 import { outcomeFor, xpFor } from '@/lib/progression/awards';
 import { getExercise } from '@/lib/exercise/registry';
@@ -138,6 +139,10 @@ export default function AccountPage() {
     // Same duty for the streak: a bonus whose receipt committed but whose
     // payout did not is owed, and finishing it here is idempotent.
     void resumeDailyBonus(uid).catch(() => {});
+
+    // And attribute the account if this player arrived through a partner link.
+    // Also idempotent: the server refuses to overwrite an existing attribution.
+    void claimReferral().catch(() => {});
   }, [uid, limit]);
 
   useEffect(() => {

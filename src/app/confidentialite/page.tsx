@@ -156,12 +156,54 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="5. Destinataires et sous-traitants">
+      <Section title="5. Parrainage par un partenaire">
+        <p>
+          Si vous vous inscrivez via le lien d’une salle de sport ou d’un coach
+          partenaire, votre compte est rattaché à ce partenaire afin de calculer
+          sa commission. Nous conservons son identifiant et la date du
+          rattachement.
+        </p>
+        <p>
+          <strong>
+            Le partenaire ne reçoit aucune information vous concernant
+          </strong>{' '}
+          : ni votre pseudonyme, ni votre e-mail, ni la date de votre
+          inscription. Il ne voit que des totaux — combien de personnes se sont
+          inscrites avec son code et combien lui est dû.
+        </p>
+        <p>
+          Base légale : intérêt légitime à rémunérer nos apporteurs d’affaires.
+          Vous pouvez demander la suppression de ce rattachement à tout moment
+          en écrivant à <Fill>adresse e-mail de contact</Fill>.
+        </p>
+      </Section>
+
+      <Section title="6. Paiements">
+        <p>
+          Lorsqu’une facture est réglée, nous enregistrons son montant, sa
+          devise, sa date, l’abonnement concerné et son identifiant Stripe.
+          Cette écriture est nécessaire à nos obligations comptables et au
+          calcul des commissions partenaires.
+        </p>
+        <p>
+          <strong>Nous ne voyons ni ne conservons vos coordonnées
+          bancaires</strong> : elles sont traitées uniquement par Stripe
+          Payments Europe, Ltd. Les données de facturation sont conservées
+          dix ans, conformément au Code de commerce.
+        </p>
+      </Section>
+
+      <Section title="7. Destinataires et sous-traitants">
         <ul className="ml-4 list-disc space-y-1">
           <li>
             <strong>Google Ireland Limited</strong> (Firebase) — authentification
             et base de données. La connexion via Google implique un échange de
             données avec Google, régi par sa propre politique de confidentialité.
+          </li>
+          <li>
+            <strong>Stripe Payments Europe, Ltd.</strong> — traitement des
+            paiements. Stripe reçoit vos coordonnées bancaires directement ;
+            nous n’y avons jamais accès.
           </li>
           <li>
             <strong>Vercel Inc.</strong> — hébergement du site. Transfert hors
@@ -179,7 +221,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="6. Cookies et stockage local">
+      <Section title="8. Cookies et stockage local">
         <p>
           Le site <strong>ne dépose aucun cookie publicitaire ni de mesure
           d’audience</strong>. Aucune bannière de consentement n’est donc
@@ -198,7 +240,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="7. Vos droits">
+      <Section title="9. Vos droits">
         <p>
           Vous disposez des droits d’accès, de rectification, d’effacement, de
           limitation, d’opposition et de portabilité prévus par le RGPD.
@@ -226,7 +268,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="8. Mineurs">
+      <Section title="10. Mineurs">
         <p>
           Le service n’est pas destiné aux personnes de moins de 15 ans. En cas
           d’inscription d’un mineur de moins de 15 ans sans le consentement du
@@ -235,7 +277,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="9. Modification">
+      <Section title="11. Modification">
         <p>
           Cette politique peut évoluer. La date de dernière mise à jour figure en
           haut de page ; en cas de changement substantiel, vous en serez informé

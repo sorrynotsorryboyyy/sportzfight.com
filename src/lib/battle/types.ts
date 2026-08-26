@@ -114,9 +114,12 @@ export interface UserDoc {
 
   /**
    * Set BY HAND in the Firestore console; the security rules forbid every
-   * client write path. Because there are no Cloud Functions there are no custom
-   * claims, so this can never reach request.auth.token and no rule can act on
-   * it — it gates a dev-only UI and nothing more. See src/app/admin/page.tsx.
+   * client write path.
+   *
+   * It is NOT inert: firestore.rules reads it with a get() in isAdmin() to gate
+   * partner writes, and requireAdmin() checks it server-side on every
+   * /api/admin route. Custom claims would need Cloud Functions; reading the
+   * document does not.
    *
    * Typed as a plain string, not the literal 'admin': the value is whatever a
    * human typed into the console, so readers must normalise before comparing.

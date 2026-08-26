@@ -10,6 +10,7 @@ import Link from 'next/link';
  */
 
 const LINKS = [
+  { href: '/partenaires', label: 'Partenaires' },
   { href: '/mentions-legales', label: 'Mentions légales' },
   { href: '/confidentialite', label: 'Confidentialité' },
   { href: '/cgu', label: 'CGU' },

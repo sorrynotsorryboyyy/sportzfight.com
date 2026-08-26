@@ -1924,3 +1924,194 @@ describe('subscription - only the webhook can grant a paid plan', () => {
     await assertSucceeds(getDoc(doc(dbOf(P2), 'users', P1)));
   });
 });
+
+describe('partners and payments - the money boundary', () => {
+  /**
+   * Commissions are real money leaving a real bank account, so the rules here
+   * are stricter than anywhere else in the file: partners are admin-only to
+   * write, and the payment ledger is readable by nobody at all.
+   *
+   * The admin check is a get() on the caller's own user document. Comments in
+   * this codebase used to claim that was impossible without Cloud Functions;
+   * it is not, and these tests are the proof.
+   */
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    xp: 0,
+    coins: 0,
+    totalReps: 0,
+    battlesPlayed: 0,
+    bestScore: 0,
+    ...over,
+  });
+
+  const partner = (over = {}) => ({
+    code: 'FITPRO',
+    name: 'Salle FitPro',
+    kind: 'gym',
+    ownerUid: null,
+    rateFirstBps: 1200,
+    rateRecurringBps: 700,
+    city: 'Lyon',
+    blurb: null,
+    logoUrl: null,
+    active: true,
+    createdAt: Timestamp.now(),
+    ...over,
+  });
+
+  const payment = (over = {}) => ({
+    uid: P2,
+    invoiceId: 'in_1',
+    subscriptionId: 'sub_1',
+    amountCents: 599,
+    currency: 'eur',
+    plan: 'premium',
+    partnerId: 'partner-1',
+    isFirstPayment: true,
+    commissionCents: 72,
+    commissionBps: 1200,
+    paidAt: Timestamp.now(),
+    commissionPaidAt: null,
+    ...over,
+  });
+
+  // ---------------- partners ----------------
+
+  it('lets anyone read a partner page, signed in or not', async () => {
+    // /p/CODE is public: a poster in a gym is read by people with no account.
+    await consoleWrite('partners/partner-1', partner());
+    await assertSucceeds(getDoc(doc(dbOf(P1), 'partners', 'partner-1')));
+  });
+
+  it('REFUSES a non-admin creating a partner', async () => {
+    // Creating a partner is creating a claim on future revenue.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'partners', 'mine'), partner({ ownerUid: P1 })),
+    );
+  });
+
+  it('REFUSES a non-admin editing a partner rate', async () => {
+    // The obvious attack: give yourself 100%.
+    await consoleWrite('users/' + P1, profile());
+    await consoleWrite('partners/partner-1', partner());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'partners', 'partner-1'), { rateFirstBps: 10000 }),
+    );
+  });
+
+  it('REFUSES a non-admin pointing a partner at their own account', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await consoleWrite('partners/partner-1', partner());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'partners', 'partner-1'), { ownerUid: P1 }),
+    );
+  });
+
+  it('lets a real admin create and edit a partner', async () => {
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'partners', 'partner-2'), partner({ code: 'COACH' })),
+    );
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'partners', 'partner-2'), { active: false }),
+    );
+  });
+
+  it('REFUSES deleting a partner, even as admin', async () => {
+    // Deactivate instead: history has to stay explicable.
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await consoleWrite('partners/partner-1', partner());
+    await assertFails(deleteDoc(doc(dbOf(P1), 'partners', 'partner-1')));
+  });
+
+  it('REFUSES someone who merely CLAIMS to be admin', async () => {
+    // No user document at all: isAdmin() must not throw its way to true.
+    await assertFails(
+      setDoc(doc(dbOf(P3), 'partners', 'ghost'), partner({ code: 'GHOST' })),
+    );
+  });
+
+  it('REFUSES a role that is not exactly admin', async () => {
+    for (const role of ['Admin', 'administrator', 'user', '']) {
+      await env.clearFirestore();
+      await consoleWrite('users/' + P1, profile({ role }));
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'partners', 'x'), partner({ code: 'XX1' })),
+      );
+    }
+  });
+
+  // ---------------- payments ----------------
+
+  it('REFUSES every client read of the ledger', async () => {
+    // It holds what every player pays. Not even an admin reads it directly —
+    // /api/admin/* does, through the Admin SDK.
+    await consoleWrite('payments/in_1', payment());
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await assertFails(getDoc(doc(dbOf(P1), 'payments', 'in_1')));
+    await assertFails(getDoc(doc(dbOf(P2), 'payments', 'in_1')));
+  });
+
+  it('REFUSES a client inventing a payment', async () => {
+    // Forging a payment would forge a commission.
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await assertFails(setDoc(doc(dbOf(P1), 'payments', 'in_2'), payment()));
+  });
+
+  it('REFUSES marking a commission paid from the client', async () => {
+    await consoleWrite('payments/in_1', payment());
+    await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'payments', 'in_1'), {
+        commissionPaidAt: Timestamp.now(),
+      }),
+    );
+  });
+
+  // ---------------- attribution ----------------
+
+  it('REFUSES a client attributing itself to a partner', async () => {
+    // This field decides who gets paid, so it is server-written only.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { partnerId: 'partner-1' }),
+    );
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { referredBy: 'FITPRO' }),
+    );
+  });
+
+  it('REFUSES re-attributing an account to a different partner', async () => {
+    // Otherwise a player could move the commission to a friend's code the day
+    // before renewing.
+    await consoleWrite('users/' + P1, profile({ partnerId: 'partner-1' }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { partnerId: 'partner-2' }),
+    );
+  });
+
+  it('REFUSES smuggling an attribution into a username change', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        username: 'Balboa',
+        partnerId: 'partner-1',
+      }),
+    );
+  });
+
+  it('still allows an ordinary edit on an attributed account', async () => {
+    // The guard must not lock a referred player out of renaming themselves.
+    await consoleWrite('users/' + P1, profile({ partnerId: 'partner-1' }));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Balboa' }),
+    );
+  });
+});

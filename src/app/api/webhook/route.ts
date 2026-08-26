@@ -3,6 +3,8 @@ import type Stripe from 'stripe';
 import { adminDb } from '@/lib/server/firebase-admin';
 import { STRIPE_WEBHOOK_SECRET, paymentsEnabled, planForPrice } from '@/lib/server/env';
 import { stripe } from '@/lib/server/stripe';
+import { commissionFor } from '@/lib/partners/commission';
+import type { Partner } from '@/lib/partners/types';
 import type { SubscriptionStatus } from '@/lib/subscription';
 
 /**
@@ -76,6 +78,96 @@ async function persist(sub: Stripe.Subscription): Promise<void> {
   );
 }
 
+/**
+ * Record one settled invoice, and freeze the commission it earns.
+ *
+ * Until this existed the system stored subscription STATE and nothing else —
+ * no amount, no date, no history — so there was no number to take a percentage
+ * of. This is that number.
+ *
+ * Keyed by the Stripe invoice id, which makes a replayed event a no-op rather
+ * than a double payout. Stripe retries aggressively; that guarantee matters.
+ */
+async function recordPayment(
+  invoice: Stripe.Invoice,
+  client: Stripe,
+): Promise<void> {
+  const db = adminDb();
+  if (!db) return;
+  if (!invoice.id) return;
+
+  // Nothing changed hands: a 100%-discounted or zero invoice still fires.
+  const amountCents = invoice.amount_paid ?? 0;
+
+  const subscriptionId =
+    typeof invoice.parent?.subscription_details?.subscription === 'string'
+      ? invoice.parent.subscription_details.subscription
+      : (invoice.parent?.subscription_details?.subscription?.id ?? null);
+
+  // The uid rides on the subscription metadata set at checkout. Without it the
+  // invoice belongs to no account we know, and guessing would be worse.
+  let uid: string | null = null;
+  let partnerId: string | null = null;
+  let plan: string | null = null;
+
+  if (subscriptionId) {
+    try {
+      const sub = await client.subscriptions.retrieve(subscriptionId);
+      uid = sub.metadata?.uid ?? null;
+      partnerId = sub.metadata?.partnerId || null;
+      const priceId = sub.items.data[0]?.price?.id;
+      plan = priceId ? planForPrice(priceId) : null;
+    } catch {
+      return; // Transient Stripe failure: let the retry handle it.
+    }
+  }
+  if (!uid) return;
+
+  const ref = db.doc(`payments/${invoice.id}`);
+  if ((await ref.get()).exists) return; // Already recorded.
+
+  // First invoice of this subscription decides 12% versus 7%. Counted from our
+  // own ledger rather than from Stripe's billing_reason, which varies by flow.
+  let isFirstPayment = true;
+  if (subscriptionId) {
+    const prior = await db
+      .collection('payments')
+      .where('subscriptionId', '==', subscriptionId)
+      .limit(1)
+      .get();
+    isFirstPayment = prior.empty;
+  }
+
+  // Read the partner fresh: rates are negotiable and deactivation must bite
+  // immediately, so a stale copy in metadata would be wrong.
+  let partner: Partner | null = null;
+  if (partnerId) {
+    const snap = await db.doc(`partners/${partnerId}`).get();
+    if (snap.exists) partner = { id: snap.id, ...snap.data() } as Partner;
+  }
+
+  const { commissionCents, commissionBps } = commissionFor({
+    amountCents,
+    partner,
+    isFirstPayment,
+  });
+
+  await ref.set({
+    uid,
+    invoiceId: invoice.id,
+    subscriptionId,
+    amountCents,
+    currency: invoice.currency ?? 'eur',
+    plan,
+    partnerId: partner ? partnerId : null,
+    isFirstPayment,
+    commissionCents,
+    commissionBps,
+    paidAt: new Date(),
+    commissionPaidAt: null,
+  });
+}
+
 export async function POST(req: Request) {
   if (!paymentsEnabled) {
     return NextResponse.json({ error: 'payments_disabled' }, { status: 503 });
@@ -122,6 +214,12 @@ export async function POST(req: Request) {
         if (id) await persist(await client.subscriptions.retrieve(id));
         break;
       }
+
+      case 'invoice.paid':
+        // THE money event: the only one carrying an amount. Subscription
+        // events describe state; this one describes a payment.
+        await recordPayment(event.data.object, client);
+        break;
 
       default:
         // Unhandled event types are acknowledged, not errored: replying non-2xx

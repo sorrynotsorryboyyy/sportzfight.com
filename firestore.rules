@@ -18,6 +18,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    /**
+     * Real, server-enforced admin.
+     *
+     * Custom claims would need Cloud Functions, but a rule can simply READ the
+     * role off the user document — the same get() this file already uses for
+     * battles and receipts. Comments elsewhere used to claim admin could not be
+     * enforced at all; that was wrong, and this is the correction.
+     *
+     * One memoised document read per evaluation.
+     */
+    function isAdmin() {
+      return signedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid))
+               .data.get('role', '') == 'admin';
+    }
+
     // ---- timing contract (must match src/lib/battle/constants.ts) ----
     function countdownSecs()  { return 3; }
     function scoreGraceSecs() { return 2; }
@@ -238,8 +255,13 @@ service cloud.firestore {
                     // Stripe webhook through the Admin SDK, which bypasses
                     // rules. No client path may touch it, so no client can
                     // grant itself a paid plan or extend one.
+                    // referredBy and partnerId join role and subscription:
+                    // they decide who gets paid a commission, so a client that
+                    // could write them could redirect someone else's money.
+                    // Written server-side only, via /api/referral.
                     && !touched().hasAny(['role', 'email', 'level', 'createdAt',
-                                          'subscription'])
+                                          'subscription', 'referredBy',
+                                          'partnerId', 'referredAt'])
                     && (
                          validProfileUpdate()
                       || validClaim()
@@ -617,6 +639,37 @@ service cloud.firestore {
 
       // Results are permanent: no rewriting history, no deleting a loss.
       allow delete: if false;
+    }
+
+    // ===============================================================
+    // PARTNERS — gyms and coaches who bring paying players
+    // ===============================================================
+    // Readable by anyone: /p/CODE is a public landing page and has to render
+    // for a visitor who is not signed in. Only non-sensitive fields live here;
+    // earnings are computed from `payments`, which no client can read.
+    //
+    // Writable by admins only, and only through the rules — the API routes use
+    // the Admin SDK, which bypasses this block entirely. The rules matter for
+    // the case the routes do not cover: a client trying it directly.
+    match /partners/{partnerId} {
+      allow get, list: if true;
+      allow create, update: if isAdmin();
+      // Deactivate rather than delete: history must stay explicable.
+      allow delete: if false;
+    }
+
+    // ===============================================================
+    // PAYMENTS — the money ledger
+    // ===============================================================
+    // NO CLIENT ACCESS AT ALL, not even the account that paid. This collection
+    // holds what every player pays and what every partner is owed; a partner
+    // has no business reading their referrals' invoices, and a player has
+    // Stripe's own receipts.
+    //
+    // Written exclusively by the Stripe webhook through the Admin SDK. Admins
+    // read it through /api/admin/*, which verifies the role server-side.
+    match /payments/{invoiceId} {
+      allow read, write: if false;
     }
   }
 }

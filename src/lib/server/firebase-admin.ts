@@ -83,6 +83,36 @@ export async function uidFromToken(token: string | null): Promise<string | null>
   }
 }
 
+/**
+ * Who is calling, and may they act as an admin?
+ *
+ * `uidFromToken` answers WHO; it never answers WHETHER. Every admin route needs
+ * both, so the check lives here rather than being re-implemented — and
+ * forgotten once — in each route.
+ *
+ * Returns the uid on success, or null. Callers must answer 403 on null and must
+ * not leak whether the account exists.
+ */
+export async function requireAdmin(req: Request): Promise<string | null> {
+  const uid = await uidFromToken(bearer(req));
+  if (!uid) return null;
+
+  const db = adminDb();
+  if (!db) return null;
+
+  try {
+    const snap = await db.doc(`users/${uid}`).get();
+    const role = snap.get('role');
+    // Normalised the same way the client does: the value is whatever a human
+    // typed into the Firestore console, and a stray trailing newline has
+    // locked an admin out before.
+    if (typeof role !== 'string') return null;
+    return role.trim().toLowerCase() === 'admin' ? uid : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Pull the bearer token out of an Authorization header. */
 export function bearer(req: Request): string | null {
   const header = req.headers.get('authorization');

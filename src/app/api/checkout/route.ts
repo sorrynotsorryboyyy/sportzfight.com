@@ -58,16 +58,27 @@ export async function POST(req: Request) {
     const contact = await db.doc(`users/${uid}/private/contact`).get();
     const email = (contact.get('email') as string | undefined) || undefined;
 
+    // Who referred this player, read from THEIR document — never from the
+    // request. The field is server-written and client-immutable, so it cannot
+    // be pointed at a different partner to redirect a commission.
+    const partnerId = (snap.get('partnerId') as string | undefined) || null;
+
     const session = await client.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price, quantity: 1 }],
       ...(existing ? { customer: existing } : { customer_email: email }),
       // The uid travels on the subscription itself, so the webhook can find the
-      // account from any event without a lookup table.
-      subscription_data: { metadata: { uid } },
-      metadata: { uid },
+      // account from any event without a lookup table. partnerId rides along
+      // so every future renewal invoice still knows who to pay.
+      subscription_data: {
+        metadata: partnerId ? { uid, partnerId } : { uid },
+      },
+      metadata: partnerId ? { uid, partnerId } : { uid },
       client_reference_id: uid,
       locale: 'fr',
+      // Stripe promotion codes discount the BUYER; they do not track a
+      // partner. The two are deliberately separate — mixing them would make
+      // the commission a percentage of an amount nobody intended.
       allow_promotion_codes: true,
       success_url: `${SITE_URL}/compte?abonnement=ok`,
       cancel_url: `${SITE_URL}/boutique`,
