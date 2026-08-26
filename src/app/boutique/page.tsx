@@ -1,12 +1,25 @@
 'use client';
 
 import Link from 'next/link';
+import { Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Logo } from '@/components/ui/Logo';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
+import { Tabs } from '@/components/ui/Tabs';
+import { ProductCard } from '@/components/shop/ProductCard';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
+import {
+  categoryFrom,
+  DEFAULT_CATEGORY,
+  MAX_DISCOUNT_RATIO,
+  productsFor,
+  TABS,
+  type Category,
+  type Product,
+} from '@/lib/shop/catalog';
 import { cn } from '@/lib/utils/cn';
 
 /**
@@ -143,10 +156,45 @@ function PlanCard({ plan }: { plan: Plan }) {
   );
 }
 
-export default function ShopPage() {
-  const { user, profile } = useAuth();
+/** The grid of physical goods, or an honest empty state. */
+function ProductGrid({ products }: { products: readonly Product[] }) {
+  if (products.length === 0) {
+    return (
+      <Card className="text-center">
+        <p className="text-sm text-ink-300">Aucun article pour le moment.</p>
+        <p className="mt-1 text-xs text-ink-500">
+          Les promotions apparaîtront ici dès qu’il y en aura.
+        </p>
+      </Card>
+    );
+  }
 
-  if (!isFirebaseConfigured) return <SetupNotice />;
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {products.map((p) => (
+        <ProductCard key={p.id} product={p} />
+      ))}
+    </div>
+  );
+}
+
+function Shop() {
+  const { user, profile } = useAuth();
+  const router = useRouter();
+  const params = useSearchParams();
+
+  // The open tab lives in the URL, following the matchmaking convention: it
+  // survives a reload, it is shareable, and the back button works. An unknown
+  // value degrades to the default rather than erroring — a URL is user input.
+  const active = categoryFrom(params.get('cat'));
+
+  const select = (id: Category) => {
+    // replace, not push: flipping through four tabs should not bury the page
+    // the visitor arrived from under four history entries.
+    router.replace(id === DEFAULT_CATEGORY ? '/boutique' : `/boutique?cat=${id}`, {
+      scroll: false,
+    });
+  };
 
   return (
     <>
@@ -172,21 +220,31 @@ export default function ShopPage() {
           </p>
         </div>
 
+        <Tabs
+          items={TABS}
+          active={active}
+          onChange={select}
+          label="Catégories de la boutique"
+        />
+
         <Card className="border-cyan-glow/25 bg-cyan-glow/5">
           <p className="text-sm font-bold text-cyan-glow">Bientôt ouvert</p>
           <p className="mt-1.5 text-sm leading-relaxed text-ink-300">
-            Les abonnements arrivent prochainement. Rien n’est encore
-            achetable — les formules ci-dessous sont là pour te donner un
+            Rien n’est encore achetable — la boutique est là pour te donner un
             aperçu. Les modes au-delà des pompes et des squats sont encore en
             développement : le Soutien te les ouvrira le jour de leur sortie.
           </p>
         </Card>
 
-        <div className="flex flex-col gap-5">
-          {PLANS.map((plan) => (
-            <PlanCard key={plan.id} plan={plan} />
-          ))}
-        </div>
+        {active === 'abonnements' ? (
+          <div className="flex flex-col gap-5">
+            {PLANS.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} />
+            ))}
+          </div>
+        ) : (
+          <ProductGrid products={productsFor(active)} />
+        )}
 
         <Card className="mt-1">
           <p className="text-xs leading-relaxed text-ink-500">
@@ -195,10 +253,35 @@ export default function ShopPage() {
             exactement à armes égales. Le Soutien débloque des modes
             supplémentaires, jamais un avantage dans un battle.
           </p>
+          <p className="mt-2 text-xs leading-relaxed text-ink-500">
+            Les $SC se gagnent en jouant et ne sont pas convertibles en argent.
+            Ils ouvrent droit à une remise plafonnée à{' '}
+            {Math.round(MAX_DISCOUNT_RATIO * 100)} % du prix d’un article.
+          </p>
         </Card>
       </main>
 
       <BottomNav />
     </>
+  );
+}
+
+/**
+ * useSearchParams needs a Suspense boundary in the app router, so the page
+ * itself is a thin shell around the real component.
+ */
+export default function ShopPage() {
+  if (!isFirebaseConfigured) return <SetupNotice />;
+
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-dvh place-items-center p-6">
+          <span className="size-8 animate-spin rounded-full border-2 border-ink-700 border-t-volt-500" />
+        </main>
+      }
+    >
+      <Shop />
+    </Suspense>
   );
 }
