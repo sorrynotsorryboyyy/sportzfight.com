@@ -23,7 +23,7 @@ export default function NotFound() {
           <Button>Retour à l’accueil</Button>
         </Link>
         <Link href="/matchmaking">
-          <Button variant="ghost">Lancer un battle</Button>
+          <Button variant="ghost">Battle</Button>
         </Link>
       </div>
       <Footer className="mt-4" />

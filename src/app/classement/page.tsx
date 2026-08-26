@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Logo } from '@/components/ui/Logo';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { Footer } from '@/components/ui/Footer';
@@ -51,17 +49,7 @@ export default function LeaderboardPage() {
   return (
     <>
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-32">
-      <header className="flex items-center justify-between py-1">
-        <Link href="/">
-          <Logo className="text-xl" />
-        </Link>
-        <Link
-          href="/compte"
-          className="text-sm text-ink-400 transition-colors hover:text-ink-100"
-        >
-          Mon compte
-        </Link>
-      </header>
+      <PageHeader />
 
       <div>
         <h1 className="text-4xl font-black uppercase leading-none tracking-tighter">
@@ -75,17 +63,11 @@ export default function LeaderboardPage() {
       {players === null ? (
         <Spinner label="Chargement du classement…" />
       ) : players.length === 0 ? (
-        <Card className="text-center">
-          <p className="text-sm text-ink-300">
-            Personne n’a encore terminé de battle.
-          </p>
-          <p className="mt-1 text-xs text-ink-500">
-            Sois le premier à entrer dans le classement.
-          </p>
-          <Link href="/matchmaking" className="mt-4 block">
-            <Button size="md">Lancer un battle</Button>
-          </Link>
-        </Card>
+        <EmptyState
+          title="Le classement est vide"
+          body="Sois le premier à y entrer."
+          action={{ href: '/matchmaking', label: 'Battle' }}
+        />
       ) : (
         <>
           <section className="pt-2">
@@ -93,7 +75,7 @@ export default function LeaderboardPage() {
           </section>
 
           {rest.length > 0 && (
-            <section className="flex flex-col gap-2">
+            <section className="stagger flex flex-col gap-2">
               {rest.map((p) => (
                 <RankRow key={p.uid} player={p} isSelf={p.uid === user?.uid} />
               ))}
@@ -121,9 +103,7 @@ export default function LeaderboardPage() {
                   }}
                 />
               ) : (
-                <Card className="text-center text-sm text-ink-400">
-                  Termine un battle pour entrer au classement.
-                </Card>
+                <EmptyState title="Termine un battle pour entrer au classement." />
               )}
             </section>
           )}

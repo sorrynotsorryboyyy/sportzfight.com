@@ -18,7 +18,7 @@ export function PlayerBar() {
   if (!user || !profile) return null;
 
   return (
-    <Link href="/compte" className="block">
+    <Link href="/compte" className="focus-ring block rounded-2xl">
       <Card className="flex items-center gap-3 py-3 transition-colors hover:border-ink-700">
         <LevelRing xp={profile.xp ?? 0} size={52} />
 

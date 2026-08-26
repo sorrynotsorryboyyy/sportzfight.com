@@ -34,6 +34,14 @@
 
   --font-display: var(--font-display), system-ui, sans-serif;
 
+  /* Micro-labels. Before these existed the same uppercase tracking-widest
+     caption was written as text-[0.6rem] in 16 places and text-[0.65rem] in
+     15 more — two sizes 0.8px apart doing one job. */
+  --text-3xs: 0.6rem;
+  --text-3xs--line-height: 1.2;
+  --text-2xs: 0.7rem;
+  --text-2xs--line-height: 1.35;
+
   --animate-pop: pop 260ms cubic-bezier(0.2, 1.4, 0.4, 1);
   --animate-count-in: count-in 500ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-rise: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -84,6 +92,37 @@ body {
     rgb(255 255 255 / 0) 42%
   );
 }
+
+/*
+ * The keyboard focus ring.
+ *
+ * One class rather than four utilities copied by hand: the audit found this
+ * exact string repeated 8 times and ABSENT from 25+ other interactive
+ * elements — every logo link, every nav link, both sign-out buttons. A ring
+ * that only some controls have is the same as no ring at all.
+ */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-cyan-glow);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/*
+ * Stagger a list so rows arrive in sequence rather than all at once.
+ * Applied to the container; each child picks up its own delay.
+ */
+.stagger > * {
+  animation: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(7) { animation-delay: 240ms; }
+/* Past this the delay would be felt as lag rather than rhythm. */
+.stagger > *:nth-child(n + 8) { animation-delay: 280ms; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

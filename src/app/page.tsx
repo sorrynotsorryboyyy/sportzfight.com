@@ -1,7 +1,8 @@
 'use client';
 
 import { BottomNav } from '@/components/ui/BottomNav';
-import { Logo } from '@/components/ui/Logo';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { SignOutButton } from '@/components/profile/SignOutButton';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { Landing } from '@/components/landing/Landing';
 import { TopWorld } from '@/components/leaderboard/TopWorld';
@@ -19,7 +20,7 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
  * different to share.
  */
 export default function Home() {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading } = useAuth();
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 
@@ -27,32 +28,19 @@ export default function Home() {
   // visitor is the more common first paint, and flashing a player card that
   // then vanishes is worse than the reverse.
   if (!user) {
-    return (
-      <>
-        <Landing />
-        {/* Mobile only: the landing has its own CTAs and a sticky nav, and a
-            bar pinned to the bottom of a wide screen looks like a phone app
-            stretched onto a desktop. */}
-        <BottomNav className="md:hidden" />
-      </>
-    );
+    // No BottomNav here: its tabs lead to Boutique and Classement, which mean
+    // nothing before signing in, and every one of them would bounce off to
+    // /login anyway. The landing keeps a single call to action.
+    return <Landing />;
   }
 
   return (
     <>
-      {/* pb-32 keeps the bottom nav from covering the last card. */}
-      <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 p-6 pb-32">
-        <header className="flex items-center justify-between py-1">
-          <Logo className="text-xl" />
-          {!loading && (
-            <button
-              onClick={() => void signOut()}
-              className="text-sm text-ink-400 transition-colors hover:text-ink-100"
-            >
-              Déconnexion
-            </button>
-          )}
-        </header>
+      {/* gap-5 p-5 pb-32 — the shared page geometry. This screen was the only
+          one at gap-6 p-6, so the left edge visibly shifted when switching
+          tabs. pb-32 keeps the bottom nav off the last card. */}
+      <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-32">
+        <PageHeader action={!loading ? <SignOutButton /> : undefined} />
 
         <PlayerBar />
 
@@ -60,7 +48,7 @@ export default function Home() {
 
         <TopWorld uid={user.uid} />
 
-        <footer className="mt-auto py-4 text-center text-xs text-ink-600">
+        <footer className="mt-auto pt-2 text-center text-2xs text-ink-600">
           Détection 100 % locale — ta vidéo ne quitte jamais ton appareil.
         </footer>
       </main>

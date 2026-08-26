@@ -1,39 +1,29 @@
 'use client';
 
-import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
-import { Logo } from '@/components/ui/Logo';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Pill } from '@/components/ui/Pill';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { Footer } from '@/components/ui/Footer';
-import { Tabs } from '@/components/ui/Tabs';
-import { ProductCard } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { startCheckout } from '@/lib/firebase/billing';
 import { activePlan } from '@/lib/subscription';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
-import {
-  categoryFrom,
-  DEFAULT_CATEGORY,
-  MAX_DISCOUNT_RATIO,
-  productsFor,
-  TABS,
-  type Category,
-  type Product,
-} from '@/lib/shop/catalog';
+import { MAX_DISCOUNT_RATIO } from '@/lib/shop/catalog';
 import { cn } from '@/lib/utils/cn';
 
 /**
- * Subscription showcase.
+ * The shop: two subscriptions, nothing else.
  *
- * Nothing is purchasable yet, and that is stated plainly: taking money needs a
- * server (a Stripe webhook writing the subscription status with rights the
- * client does not have), which is a batch of its own. Showing the plans now
- * gives the $SC balance a destination and lets the pricing be judged before it
- * is wired up.
+ * It used to carry four tabs and nine physical products behind "Bientôt"
+ * buttons. None of it could ship — there is no stock, no supplier and no
+ * shipping — so a visitor met a catalogue where nothing was buyable. The
+ * catalogue survives in lib/shop/catalog.ts for the day that changes; what is
+ * on screen is what can actually be sold.
  *
  * The line that must never move: nothing sold here touches scoring, XP or
  * matchmaking. Selling a competitive advantage would turn a public leaderboard
@@ -120,6 +110,7 @@ function PlanCard({
   const { user } = useAuth();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const mine = current === plan.id;
 
   const subscribe = async () => {
@@ -129,12 +120,16 @@ function PlanCard({
       return;
     }
     setBusy(true);
+    setFailed(false);
     const url = await startCheckout(plan.id);
     if (url) {
       window.location.href = url;
       return;
     }
+    // Previously this just stopped spinning and said nothing, on a payment
+    // button — the user could not tell a failure from a slow network.
     setBusy(false);
+    setFailed(true);
   };
 
   return (
@@ -149,7 +144,7 @@ function PlanCard({
       )}
     >
       {plan.highlight && (
-        <span className="absolute -top-2.5 left-5 rounded-full bg-volt-500 px-2.5 py-0.5 text-[0.6rem] font-black uppercase tracking-widest text-ink-950">
+        <span className="absolute -top-2.5 left-5 rounded-full bg-volt-500 px-2.5 py-0.5 text-3xs font-black uppercase tracking-widest text-ink-950">
           Le plus populaire
         </span>
       )}
@@ -186,9 +181,16 @@ function PlanCard({
           Ton abonnement
         </p>
       ) : payments ? (
-        <Button size="md" className="mt-6" loading={busy} onClick={subscribe}>
-          S’abonner
-        </Button>
+        <>
+          <Button size="md" className="mt-6" loading={busy} onClick={subscribe}>
+            S’abonner
+          </Button>
+          {failed && (
+            <p role="alert" className="mt-2 text-center text-2xs text-flare-400">
+              Le paiement n’a pas pu démarrer. Réessaie dans un instant.
+            </p>
+          )}
+        </>
       ) : (
         // Worded so nobody can mistake this for a completed purchase.
         <button
@@ -203,32 +205,8 @@ function PlanCard({
   );
 }
 
-/** The grid of physical goods, or an honest empty state. */
-function ProductGrid({ products }: { products: readonly Product[] }) {
-  if (products.length === 0) {
-    return (
-      <Card className="text-center">
-        <p className="text-sm text-ink-300">Aucun article pour le moment.</p>
-        <p className="mt-1 text-xs text-ink-500">
-          Les promotions apparaîtront ici dès qu’il y en aura.
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {products.map((p) => (
-        <ProductCard key={p.id} product={p} />
-      ))}
-    </div>
-  );
-}
-
 function Shop() {
   const { user, profile } = useAuth();
-  const router = useRouter();
-  const params = useSearchParams();
 
   // Whether a payment can be taken depends on server-side secrets, so only the
   // server can answer. Until it does, the cards stay in their "Bientôt" state —
@@ -249,32 +227,18 @@ function Shop() {
 
   const current = activePlan(profile?.subscription);
 
-  // The open tab lives in the URL, following the matchmaking convention: it
-  // survives a reload, it is shareable, and the back button works. An unknown
-  // value degrades to the default rather than erroring — a URL is user input.
-  const active = categoryFrom(params.get('cat'));
-
-  const select = (id: Category) => {
-    // replace, not push: flipping through four tabs should not bury the page
-    // the visitor arrived from under four history entries.
-    router.replace(id === DEFAULT_CATEGORY ? '/boutique' : `/boutique?cat=${id}`, {
-      scroll: false,
-    });
-  };
-
   return (
     <>
       <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-32">
-        <header className="flex items-center justify-between py-1">
-          <Link href="/">
-            <Logo className="text-xl" />
-          </Link>
-          {user && profile && (
-            <span className="tnum rounded-full bg-gold/10 px-3 py-1 text-sm font-black text-gold">
-              {profile.coins ?? 0} $SC
-            </span>
-          )}
-        </header>
+        <PageHeader
+          action={
+            user && profile ? (
+              <Pill tone="gold" size="md" className="tnum">
+                {profile.coins ?? 0} $SC
+              </Pill>
+            ) : undefined
+          }
+        />
 
         <div>
           <h1 className="text-4xl font-black uppercase leading-none tracking-tighter">
@@ -286,52 +250,31 @@ function Shop() {
           </p>
         </div>
 
-        <Tabs
-          items={TABS}
-          active={active}
-          onChange={select}
-          label="Catégories de la boutique"
-        />
-
-        <Card className="border-cyan-glow/25 bg-cyan-glow/5">
-          <p className="text-sm font-bold text-cyan-glow">
-            {payments ? 'Bon à savoir' : 'Bientôt ouvert'}
-          </p>
-          <p className="mt-1.5 text-sm leading-relaxed text-ink-300">
-            {payments
-              ? 'Les abonnements sont mensuels, sans engagement, résiliables à tout moment depuis ton compte. Le merch et les objets ne sont pas encore expédiables.'
-              : 'Rien n’est encore achetable — la boutique est là pour te donner un aperçu.'}{' '}
-            Les modes au-delà des pompes et des squats sont encore en
-            développement : le Soutien te les ouvrira le jour de leur sortie.
-          </p>
-        </Card>
-
-        {active === 'abonnements' ? (
-          <div className="flex flex-col gap-5">
-            {PLANS.map((plan) => (
-              <PlanCard
-                key={plan.id}
-                plan={plan}
-                payments={payments}
-                current={current}
-              />
-            ))}
-          </div>
-        ) : (
-          <ProductGrid products={productsFor(active)} />
-        )}
+        <div className="stagger flex flex-col gap-5">
+          {PLANS.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              payments={payments}
+              current={current}
+            />
+          ))}
+        </div>
 
         <Card className="mt-1">
           <p className="text-xs leading-relaxed text-ink-500">
             Aucun avantage payant n’influence les scores, l’XP ou le
             classement : à exercice égal, un abonné et un joueur gratuit sont
-            exactement à armes égales. Le Soutien débloque des modes
-            supplémentaires, jamais un avantage dans un battle.
+            exactement à armes égales.
           </p>
           <p className="mt-2 text-xs leading-relaxed text-ink-500">
             Les $SC se gagnent en jouant et ne sont pas convertibles en argent.
-            Ils ouvrent droit à une remise plafonnée à{' '}
-            {Math.round(MAX_DISCOUNT_RATIO * 100)} % du prix d’un article.
+            Ils ouvriront droit à une remise plafonnée à{' '}
+            {Math.round(MAX_DISCOUNT_RATIO * 100)} % sur le merch, à venir.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-ink-500">
+            Abonnements mensuels, sans engagement, résiliables à tout moment
+            depuis ton compte.
           </p>
         </Card>
         <Footer className="mt-2" />
@@ -342,22 +285,7 @@ function Shop() {
   );
 }
 
-/**
- * useSearchParams needs a Suspense boundary in the app router, so the page
- * itself is a thin shell around the real component.
- */
 export default function ShopPage() {
   if (!isFirebaseConfigured) return <SetupNotice />;
-
-  return (
-    <Suspense
-      fallback={
-        <main className="grid min-h-dvh place-items-center p-6">
-          <span className="size-8 animate-spin rounded-full border-2 border-ink-700 border-t-volt-500" />
-        </main>
-      }
-    >
-      <Shop />
-    </Suspense>
-  );
+  return <Shop />;
 }

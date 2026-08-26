@@ -72,7 +72,7 @@ function Metric({
     <div className="flex items-baseline justify-between gap-3 border-b border-ink-800 py-2 last:border-0">
       <div className="min-w-0">
         <p className="text-sm text-ink-300">{label}</p>
-        {hint && <p className="text-[0.65rem] text-ink-600">{hint}</p>}
+        {hint && <p className="text-3xs text-ink-600">{hint}</p>}
       </div>
       <span
         className={cn(
@@ -190,7 +190,7 @@ export default function AdminPage() {
         <Link href="/">
           <Logo className="text-xl" />
         </Link>
-        <span className="rounded-full bg-cyan-glow/15 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-widest text-cyan-glow">
+        <span className="rounded-full bg-cyan-glow/15 px-2.5 py-1 text-3xs font-bold uppercase tracking-widest text-cyan-glow">
           Admin · banc de test
         </span>
       </header>
@@ -265,7 +265,7 @@ export default function AdminPage() {
           />
 
           <div className="mt-3 rounded-xl bg-ink-850 p-3">
-            <p className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-500">
+            <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
               Posture
             </p>
             <p
@@ -320,7 +320,7 @@ export default function AdminPage() {
                     }
                     className="mt-1.5 w-full accent-volt-500"
                   />
-                  <span className="text-[0.65rem] leading-tight text-ink-600">
+                  <span className="text-3xs leading-tight text-ink-600">
                     {t.help}
                   </span>
                 </label>
@@ -330,7 +330,7 @@ export default function AdminPage() {
 
           {configBlock && (
             <div className="mt-4">
-              <p className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-widest text-ink-500">
+              <p className="mb-1.5 text-3xs font-bold uppercase tracking-widest text-ink-500">
                 À coller dans PUSHUP_CONFIG
               </p>
               <pre className="overflow-x-auto rounded-xl bg-ink-950 p-3 text-xs text-volt-400">

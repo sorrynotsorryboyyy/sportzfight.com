@@ -71,7 +71,7 @@ export default function Confidentialite() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[36rem] text-left text-xs">
             <thead>
-              <tr className="text-[0.65rem] uppercase tracking-widest text-ink-500">
+              <tr className="text-3xs uppercase tracking-widest text-ink-500">
                 <th className="pb-2 pr-3 font-bold">Donnée</th>
                 <th className="pb-2 pr-3 font-bold">Finalité</th>
                 <th className="pb-2 pr-3 font-bold">Base légale</th>

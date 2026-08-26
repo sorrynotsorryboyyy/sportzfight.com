@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@/components/ui/Avatar';
+import { Card } from '@/components/ui/Card';
 import { PlanBadge } from '@/components/profile/PlanBadge';
 import { cn } from '@/lib/utils/cn';
 import type { RankedPlayer } from '@/lib/firebase/leaderboard';
@@ -13,47 +15,6 @@ const MEDAL = [
 
 function medalFor(rank: number) {
   return rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
-}
-
-function Avatar({
-  src,
-  name,
-  size,
-  ring,
-}: {
-  src: string | null;
-  name: string;
-  size: number;
-  ring?: string;
-}) {
-  const cls = cn(
-    'rounded-full object-cover',
-    ring && `ring-2 ${ring} ring-offset-2 ring-offset-ink-950`,
-  );
-  if (src) {
-    return (
-      // Google avatar URLs are remote and unoptimisable by next/image without
-      // configuring the host; a 32-68px circle is not worth that.
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src}
-        alt=""
-        referrerPolicy="no-referrer"
-        width={size}
-        height={size}
-        className={cls}
-        style={{ width: size, height: size }}
-      />
-    );
-  }
-  return (
-    <span
-      className={cn(cls, 'grid place-items-center bg-ink-800 font-black text-ink-400')}
-      style={{ width: size, height: size, fontSize: size * 0.4 }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  );
 }
 
 /**
@@ -115,12 +76,15 @@ export function RankRow({
   const medal = medalFor(player.rank);
 
   return (
-    <div
+    <Card
+      radius="md"
+      padding="sm"
+      sheen={false}
       className={cn(
-        'flex items-center gap-3 rounded-xl border px-3 py-2.5',
+        'flex items-center gap-3 transition-colors',
         isSelf
           ? 'border-volt-500/60 bg-volt-500/5'
-          : 'border-ink-800 bg-ink-900/60',
+          : 'hover:border-ink-700',
       )}
     >
       <span
@@ -142,7 +106,7 @@ export function RankRow({
             changes nothing about the ranking it sits in. */}
         <PlanBadge subscription={player.subscription} />
         {isSelf && (
-          <span className="shrink-0 text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+          <span className="shrink-0 text-3xs font-bold uppercase tracking-widest text-volt-500">
             toi
           </span>
         )}
@@ -152,7 +116,7 @@ export function RankRow({
         <span className="block text-base font-black leading-none text-volt-500">
           {player.wins}
         </span>
-        <span className="text-[0.6rem] uppercase tracking-widest text-ink-600">
+        <span className="text-3xs uppercase tracking-widest text-ink-600">
           victoires
         </span>
       </span>
@@ -161,10 +125,10 @@ export function RankRow({
         <span className="block text-base font-black leading-none text-ink-200">
           {player.totalReps}
         </span>
-        <span className="text-[0.6rem] uppercase tracking-widest text-ink-600">
+        <span className="text-3xs uppercase tracking-widest text-ink-600">
           pompes
         </span>
       </span>
-    </div>
+    </Card>
   );
 }

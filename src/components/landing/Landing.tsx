@@ -26,8 +26,6 @@ const LEGAL = [
   { href: '/cgu', label: 'CGU' },
 ] as const;
 
-/** Height reserved for the mobile bottom bar: tabs + padding + home indicator. */
-const BOTTOM_BAR = 'calc(5.5rem + env(safe-area-inset-bottom, 0px))';
 
 export function Landing() {
   return (
@@ -42,8 +40,7 @@ export function Landing() {
         />
 
         <div
-          className="relative mx-auto grid w-full max-w-6xl items-center gap-8 px-5 pb-[var(--bottom-bar)] sm:px-8 lg:grid-cols-2 lg:gap-16 lg:pb-0"
-          style={{ '--bottom-bar': BOTTOM_BAR } as React.CSSProperties}
+          className="relative mx-auto grid w-full max-w-6xl items-center gap-8 px-5 pb-[env(safe-area-inset-bottom,0px)] sm:px-8 lg:grid-cols-2 lg:gap-16"
         >
           <div className="animate-rise">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-volt-500 sm:text-sm">
@@ -79,12 +76,12 @@ export function Landing() {
             {/* The landing has no footer — it is a single fold by design — so
                 the legal links live here. They have to be reachable from the
                 page a visitor actually lands on. */}
-            <p className="mt-5 flex flex-wrap gap-x-3 gap-y-1 text-[0.65rem] text-ink-600 lg:mt-6">
+            <p className="mt-5 flex flex-wrap gap-x-3 gap-y-1 text-3xs text-ink-600 lg:mt-6">
               {LEGAL.map((l) => (
                 <Link
                   key={l.href}
                   href={l.href}
-                  className="transition-colors hover:text-ink-400"
+                  className="focus-ring rounded px-0.5 transition-colors hover:text-ink-400"
                 >
                   {l.label}
                 </Link>

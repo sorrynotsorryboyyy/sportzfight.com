@@ -58,9 +58,9 @@ export function TopWorld({
         </h2>
         <Link
           href="/classement"
-          className="text-xs font-semibold text-volt-500 hover:underline"
+          className="focus-ring rounded px-1 text-xs font-semibold text-volt-500 hover:underline"
         >
-          Tout voir →
+          Classement →
         </Link>
       </div>
 

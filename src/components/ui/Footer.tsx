@@ -18,18 +18,18 @@ const LINKS = [
 export function Footer({ className }: { className?: string }) {
   return (
     <footer className={className}>
-      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[0.7rem] text-ink-500">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-2xs text-ink-500">
         {LINKS.map((l) => (
           <Link
             key={l.href}
             href={l.href}
-            className="transition-colors hover:text-ink-300"
+            className="focus-ring rounded px-0.5 transition-colors hover:text-ink-300"
           >
             {l.label}
           </Link>
         ))}
       </div>
-      <p className="mt-2 text-center text-[0.65rem] text-ink-600">
+      <p className="mt-2 text-center text-3xs text-ink-600">
         SportzFight — le sport sans excuse
       </p>
     </footer>

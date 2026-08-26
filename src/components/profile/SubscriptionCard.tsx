@@ -35,16 +35,19 @@ export function SubscriptionCard({
   subscription: Subscription | null | undefined;
 }) {
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const plan = activePlan(subscription);
 
   const manage = async () => {
     setBusy(true);
+    setFailed(false);
     const url = await openPortal();
     if (url) {
       window.location.href = url;
       return;
     }
     setBusy(false);
+    setFailed(true);
   };
 
   // No plan: a single quiet line, not a sales pitch on someone's own profile.
@@ -52,14 +55,14 @@ export function SubscriptionCard({
     return (
       <Card className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+          <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
             Abonnement
           </p>
           <p className="mt-1 text-sm text-ink-300">Compte gratuit</p>
         </div>
         <Link
           href="/boutique"
-          className="shrink-0 text-sm font-semibold text-volt-500 hover:underline"
+          className="focus-ring shrink-0 rounded px-1 text-sm font-semibold text-volt-500 hover:underline"
         >
           Voir les offres
         </Link>
@@ -73,7 +76,7 @@ export function SubscriptionCard({
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+          <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
             Abonnement
           </p>
           <p className="mt-1 text-lg font-black uppercase tracking-tight text-volt-500">
@@ -82,7 +85,7 @@ export function SubscriptionCard({
         </div>
 
         {subscription.status === 'past_due' && (
-          <span className="shrink-0 rounded-full bg-flare-500/15 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-widest text-flare-400">
+          <span className="shrink-0 rounded-full bg-flare-500/15 px-2 py-0.5 text-3xs font-bold uppercase tracking-widest text-flare-400">
             Paiement en attente
           </span>
         )}
@@ -106,9 +109,15 @@ export function SubscriptionCard({
       <Button variant="secondary" size="md" className="mt-4" loading={busy} onClick={manage}>
         Gérer mon abonnement
       </Button>
-      <p className="mt-2 text-center text-[0.65rem] text-ink-500">
-        Résiliation, facture et moyen de paiement.
-      </p>
+      {failed ? (
+        <p role="alert" className="mt-2 text-center text-2xs text-flare-400">
+          Impossible d’ouvrir le portail. Réessaie dans un instant.
+        </p>
+      ) : (
+        <p className="mt-2 text-center text-2xs text-ink-500">
+          Résiliation, facture et moyen de paiement.
+        </p>
+      )}
     </Card>
   );
 }

@@ -59,7 +59,7 @@ function Badge({
     <>
       <span className={cn(!href && 'opacity-45')}>{mark}</span>
       <span className="text-left leading-none">
-        <span className="block text-[0.55rem] uppercase tracking-wide text-ink-400">
+        <span className="block text-3xs uppercase tracking-wide text-ink-400">
           {top}
         </span>
         <span
@@ -104,7 +104,7 @@ export function StoreBadges({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <p className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-500">
+      <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
         {live ? 'Télécharge l’appli' : 'Bientôt sur mobile'}
       </p>
       <div className="mt-2.5 flex flex-wrap gap-2.5">

@@ -334,13 +334,13 @@ export default function BattlePage({
           {/* --- top: you, and the clock --- */}
           <div className="flex items-start justify-between gap-3 bg-gradient-to-b from-ink-950/85 to-transparent p-4 pb-12">
             <div className="min-w-0">
-              <p className="truncate text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+              <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
                 {meName}
               </p>
               <span className="tnum block text-7xl font-black leading-none text-volt-500 sm:text-8xl">
                 {myScore}
               </span>
-              <p className="mt-0.5 text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+              <p className="mt-0.5 text-3xs font-bold uppercase tracking-widest text-ink-500">
                 pompes
               </p>
             </div>
@@ -387,7 +387,11 @@ export default function BattlePage({
   if (isSpectator) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
-        <Logo className="text-2xl" />
+        {/* Linked, unlike before: this was the only element on a page with no
+            other navigation, so a spectator had literally no way out. */}
+        <Link href="/" aria-label="SportzFight, accueil" className="focus-ring self-start">
+          <Logo className="text-2xl" />
+        </Link>
         <div className="flex items-stretch gap-3">
           <PlayerCard
             name={p1Name}
@@ -439,7 +443,7 @@ export default function BattlePage({
             </Link>
           </div>
 
-          <p className="truncate text-[0.65rem] font-bold uppercase tracking-widest text-volt-500">
+          <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
             {meName}
           </p>
           <p className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-ink-100">

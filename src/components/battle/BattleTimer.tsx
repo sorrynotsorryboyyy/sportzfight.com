@@ -66,7 +66,7 @@ export function BattleTimer({
         >
           {secondsLeft}
         </span>
-        <span className="mt-1 text-[0.65rem] font-bold uppercase tracking-widest text-ink-500">
+        <span className="mt-1 text-3xs font-bold uppercase tracking-widest text-ink-500">
           {approximate ? 'sec ~' : 'sec'}
         </span>
       </div>

@@ -46,9 +46,12 @@ export function StreakCard({ uid }: { uid: string }) {
     refresh();
   };
 
-  // Nothing to show until the first read lands: an empty card that then fills
-  // in is worse than no card.
-  if (!status) return null;
+  // A skeleton of the SAME height, not null: returning null made the card
+  // appear after a Firestore read and shove the whole page down — the worst
+  // layout shift in the app, on every visit to this page.
+  if (!status) {
+    return <Card className="h-44 animate-pulse" aria-hidden />;
+  }
 
   const next = status.streak + 1;
   const tier = milestone(next);
@@ -58,7 +61,7 @@ export function StreakCard({ uid }: { uid: string }) {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+          <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
             Série en cours
           </p>
           <p className="mt-1 flex items-baseline gap-1.5">
@@ -83,7 +86,7 @@ export function StreakCard({ uid }: { uid: string }) {
             Objectif du jour · {status.progress}/{status.goal} battles
           </p>
           {tier && (
-            <p className="text-[0.65rem] font-bold uppercase tracking-widest text-gold">
+            <p className="text-3xs font-bold uppercase tracking-widest text-gold">
               Palier {tier}
             </p>
           )}

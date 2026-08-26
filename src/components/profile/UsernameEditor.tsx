@@ -98,7 +98,8 @@ export function UsernameEditor({
             setValue(current);
             setEditing(true);
           }}
-          className="shrink-0 rounded-lg border border-ink-700 px-2.5 py-1 text-xs font-semibold text-ink-400 transition-colors hover:border-volt-500 hover:text-volt-400"
+          type="button"
+          className="focus-ring shrink-0 rounded-lg border border-ink-700 px-2.5 py-1 text-xs font-semibold text-ink-400 transition-colors hover:border-volt-500 hover:text-volt-400"
         >
           Modifier
         </button>

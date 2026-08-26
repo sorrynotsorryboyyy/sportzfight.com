@@ -65,7 +65,7 @@ export function PlayerCard({
       </div>
 
       {isSelf && (
-        <span className="text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+        <span className="text-3xs font-bold uppercase tracking-widest text-ink-500">
           Toi
         </span>
       )}
@@ -84,7 +84,7 @@ export function PlayerCard({
       {ready !== undefined && (
         <span
           className={cn(
-            'mt-1 rounded-full px-2.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-widest',
+            'mt-1 rounded-full px-2.5 py-0.5 text-3xs font-bold uppercase tracking-widest',
             ready ? 'bg-volt-500/15 text-volt-400' : 'bg-ink-800 text-ink-500',
           )}
         >

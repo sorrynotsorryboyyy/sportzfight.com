@@ -84,7 +84,7 @@ export function CameraStage({
             good ? 'bg-volt-500' : tracked ? 'bg-gold' : 'bg-ink-600',
           )}
         />
-        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-300">
+        <span className="text-3xs font-bold uppercase tracking-widest text-ink-300">
           {good ? 'Détecté' : tracked ? 'Ajuste' : 'Recherche…'}
         </span>
       </div>

@@ -61,7 +61,7 @@ export function AuthForm() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-10 p-6">
-      <Link href="/" className="self-start">
+      <Link href="/" aria-label="SportzFight, accueil" className="focus-ring self-start">
         <Logo className="text-2xl" />
       </Link>
 

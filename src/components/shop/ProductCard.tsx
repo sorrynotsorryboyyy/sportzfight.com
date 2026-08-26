@@ -11,6 +11,10 @@ import { ProductMark } from './ProductIcons';
 /**
  * One item in the shop grid.
  *
+ * NOT RENDERED TODAY. The shop shows subscriptions only, because there is no
+ * stock, no supplier and no shipping — a grid of unbuyable goods is worse than
+ * no grid. Kept, with lib/shop/catalog.ts, for the day that changes.
+ *
  * Nothing is purchasable, and the card says so rather than implying otherwise:
  * the action is a disabled button, exactly like the subscription cards and the
  * store badges on the landing.
@@ -22,7 +26,7 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <Card className="relative flex flex-col p-4">
       {off !== null && (
-        <span className="absolute right-3 top-3 rounded-full bg-flare-500 px-2 py-0.5 text-[0.6rem] font-black uppercase tracking-widest text-white">
+        <span className="absolute right-3 top-3 rounded-full bg-flare-500 px-2 py-0.5 text-3xs font-black uppercase tracking-widest text-white">
           −{off} %
         </span>
       )}
@@ -48,15 +52,15 @@ export function ProductCard({ product }: { product: Product }) {
           )}
         </p>
 
-        <p className="mt-1.5 text-[0.7rem] leading-snug text-gold">
+        <p className="mt-1.5 text-2xs leading-snug text-gold">
           Jusqu’à −{formatEuros(cap.cents)} avec {cap.coins} $SC
         </p>
-        <p className="mt-0.5 text-[0.65rem] leading-snug text-ink-500">
+        <p className="mt-0.5 text-3xs leading-snug text-ink-500">
           ≈ {weeksToEarn(cap.coins)} en jouant tous les jours
         </p>
 
         {product.sizes && (
-          <p className="mt-2 text-[0.7rem] text-ink-500">
+          <p className="mt-2 text-2xs text-ink-500">
             {product.sizes.join(' · ')}
           </p>
         )}

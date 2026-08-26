@@ -1,6 +1,5 @@
-import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Logo } from '@/components/ui/Logo';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Footer } from '@/components/ui/Footer';
 
 /**
@@ -24,17 +23,8 @@ export function LegalPage({
 }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-5 pb-16 sm:p-8">
-      <header className="flex items-center justify-between py-1">
-        <Link href="/">
-          <Logo className="text-xl" />
-        </Link>
-        <Link
-          href="/"
-          className="text-sm text-ink-400 transition-colors hover:text-ink-100"
-        >
-          Retour au site
-        </Link>
-      </header>
+      {/* One link home, not two identical ones as before. */}
+      <PageHeader />
 
       <div>
         <h1 className="text-3xl font-black uppercase leading-none tracking-tighter sm:text-4xl">
@@ -50,7 +40,7 @@ export function LegalPage({
         </p>
       </div>
 
-      <div className="legal-prose flex flex-col gap-6 text-sm leading-relaxed text-ink-300">
+      <div className="flex flex-col gap-6 text-sm leading-relaxed text-ink-300">
         {children}
       </div>
 

@@ -53,7 +53,7 @@ export function LevelRing({
       </svg>
 
       <div className="absolute flex flex-col items-center leading-none">
-        <span className="text-[0.55rem] font-bold uppercase tracking-widest text-ink-500">
+        <span className="text-3xs font-bold uppercase tracking-widest text-ink-500">
           Niv.
         </span>
         <span

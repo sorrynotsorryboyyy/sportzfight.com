@@ -65,7 +65,7 @@ export function OpponentBar({
           className="size-7 shrink-0 rounded-full object-cover"
         />
       ) : (
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink-800 text-[0.65rem] font-bold text-ink-400">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink-800 text-3xs font-bold text-ink-400">
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}
@@ -74,7 +74,7 @@ export function OpponentBar({
         <p className="truncate text-sm font-bold leading-tight text-ink-200">
           {name}
         </p>
-        <p className="flex items-center gap-1 text-[0.6rem] font-semibold uppercase tracking-widest text-ink-500">
+        <p className="flex items-center gap-1 text-3xs font-semibold uppercase tracking-widest text-ink-500">
           <span
             className={cn(
               'size-1.5 rounded-full',
@@ -109,7 +109,7 @@ export function OpponentBar({
       )}
 
       {score === undefined && ready && (
-        <span className="shrink-0 rounded-full bg-volt-500/15 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-widest text-volt-400">
+        <span className="shrink-0 rounded-full bg-volt-500/15 px-2 py-0.5 text-3xs font-bold uppercase tracking-widest text-volt-400">
           Prêt
         </span>
       )}

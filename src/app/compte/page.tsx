@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Logo } from '@/components/ui/Logo';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { SignOutButton } from '@/components/profile/SignOutButton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Avatar } from '@/components/ui/Avatar';
+import { Pill } from '@/components/ui/Pill';
 import { SetupNotice } from '@/components/ui/SetupNotice';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { Footer } from '@/components/ui/Footer';
@@ -36,7 +39,7 @@ function Stat({
   accent?: 'volt' | 'flare' | 'gold';
 }) {
   return (
-    <div className="rounded-xl border border-ink-800 bg-ink-900/60 px-3 py-3 text-center">
+    <Card radius="md" padding="sm" sheen={false} className="py-3 text-center">
       <p
         className={cn(
           'tnum text-2xl font-black leading-none',
@@ -48,10 +51,10 @@ function Stat({
       >
         {value}
       </p>
-      <p className="mt-1 text-[0.6rem] font-bold uppercase tracking-widest text-ink-500">
+      <p className="mt-1 text-3xs font-bold uppercase tracking-widest text-ink-500">
         {label}
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -68,7 +71,7 @@ function HistoryRow({ battle, uid }: { battle: BattleWithId; uid: string }) {
     : '';
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-900/60 px-3 py-2.5">
+    <Card radius="md" padding="sm" sheen={false} className="flex items-center gap-3 transition-colors hover:border-ink-700">
       <span
         className={cn(
           'grid size-8 shrink-0 place-items-center rounded-lg text-xs font-black',
@@ -84,7 +87,7 @@ function HistoryRow({ battle, uid }: { battle: BattleWithId; uid: string }) {
         <p className="truncate text-sm font-semibold text-ink-200">
           {ex.emoji} {ex.label}
         </p>
-        <p className="text-[0.65rem] text-ink-600">{date}</p>
+        <p className="text-3xs text-ink-600">{date}</p>
       </div>
 
       <span className="tnum shrink-0 text-sm font-black">
@@ -101,15 +104,15 @@ function HistoryRow({ battle, uid }: { battle: BattleWithId; uid: string }) {
 
       <span className="tnum w-14 shrink-0 text-right text-xs font-semibold text-cyan-glow">
         +{xpFor(outcome, myScore)}
-        <span className="ml-0.5 text-[0.6rem] text-ink-600">XP</span>
+        <span className="ml-0.5 text-3xs text-ink-600">XP</span>
       </span>
-    </div>
+    </Card>
   );
 }
 
 export default function AccountPage() {
   const { user, loading: authLoading } = useRequireAuth();
-  const { profile, needsUsernameFix, avatar, signOut } = useAuth();
+  const { profile, needsUsernameFix, avatar } = useAuth();
   const [history, setHistory] = useState<BattleWithId[] | null>(null);
 
   const uid = user?.uid ?? null;
@@ -167,17 +170,7 @@ export default function AccountPage() {
   return (
     <>
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-5 p-5 pb-32">
-      <header className="flex items-center justify-between py-1">
-        <Link href="/">
-          <Logo className="text-xl" />
-        </Link>
-        <button
-          onClick={() => void signOut()}
-          className="text-sm text-ink-400 transition-colors hover:text-ink-100"
-        >
-          Déconnexion
-        </button>
-      </header>
+      <PageHeader action={<SignOutButton />} />
 
       {/* Forced rename: a legacy Google display name must be replaced before
           the player can get back to the rest of the app. */}
@@ -209,18 +202,10 @@ export default function AccountPage() {
             <UsernameEditor uid={uid} current={profile.username} />
           )}
           <div className="mt-2 flex items-center gap-2">
-            {avatar && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatar}
-                alt=""
-                referrerPolicy="no-referrer"
-                className="size-6 rounded-full border border-ink-700 object-cover"
-              />
-            )}
-            <span className="tnum rounded-full bg-gold/10 px-2.5 py-0.5 text-sm font-black text-gold">
+            <Avatar src={avatar} name={profile.username} size={24} />
+            <Pill tone="gold" size="md" className="tnum">
               {profile.coins ?? 0} $SC
-            </span>
+            </Pill>
             <PlanBadge subscription={profile.subscription} />
           </div>
         </div>
@@ -260,23 +245,22 @@ export default function AccountPage() {
           </h2>
           <Link
             href="/classement"
-            className="text-xs font-semibold text-volt-500 hover:underline"
+            className="focus-ring rounded px-1 text-xs font-semibold text-volt-500 hover:underline"
           >
-            Top Mondial →
+            Classement →
           </Link>
         </div>
 
         {history === null ? (
           <Spinner />
         ) : history.length === 0 ? (
-          <Card className="text-center">
-            <p className="text-sm text-ink-400">Aucun battle terminé.</p>
-            <Link href="/matchmaking" className="mt-3 block">
-              <Button size="md">Trouver un adversaire</Button>
-            </Link>
-          </Card>
+          <EmptyState
+            title="Aucun battle terminé"
+            body="Ton historique se remplira après ton premier duel."
+            action={{ href: '/matchmaking', label: 'Battle' }}
+          />
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="stagger flex flex-col gap-2">
             {history.map((b) => (
               <HistoryRow key={b.id} battle={b} uid={uid} />
             ))}

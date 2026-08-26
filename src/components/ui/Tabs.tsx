@@ -6,6 +6,10 @@ import { cn } from '@/lib/utils/cn';
 /**
  * A segmented tab strip.
  *
+ * NOT USED TODAY: its only caller was the shop, which no longer has categories.
+ * Kept as a primitive — the ARIA keyboard handling is the hard part and it is
+ * already done and reviewed.
+ *
  * The first tabs component in the project, so it borrows the active-state
  * vocabulary already established by BottomNav: volt for the current item, muted
  * ink otherwise, and a cyan focus ring.

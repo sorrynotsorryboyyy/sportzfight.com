@@ -24,7 +24,7 @@ export function PlanBadge({
     <span
       title={`Abonné ${planLabel(plan)}`}
       className={cn(
-        'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[0.55rem] font-black uppercase tracking-widest',
+        'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-3xs font-black uppercase tracking-widest',
         plan === 'premium'
           ? 'bg-volt-500/15 text-volt-500'
           : 'bg-gold/15 text-gold',

@@ -3,6 +3,8 @@ import type { ProductIcon } from '@/lib/shop/catalog';
 /**
  * Line-drawn product marks.
  *
+ * NOT RENDERED TODAY — see ProductCard. Kept for the merch relaunch.
+ *
  * public/ holds no images and next/image is unused across the project, so the
  * catalogue is illustrated the way everything else is: inline SVG on
  * currentColor, matching the stroke weight of the BottomNav icons.
