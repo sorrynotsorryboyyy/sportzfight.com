@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SignOutButton } from '@/components/profile/SignOutButton';
@@ -22,7 +23,8 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
  * different to share.
  */
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, needsOnboarding } = useAuth();
+  const router = useRouter();
 
   // Attribute the account to a partner if this player arrived through one.
   // Here rather than only on /compte: the hub is where everyone lands after
@@ -32,6 +34,13 @@ export default function Home() {
     if (!user) return;
     void claimReferral().catch(() => {});
   }, [user]);
+
+  // The welcome screen, shown once. Gated on the derived flag rather than a
+  // route guard — profile === null means loading, so a returning player never
+  // sees a flash of it.
+  useEffect(() => {
+    if (needsOnboarding) router.replace('/bienvenue');
+  }, [needsOnboarding, router]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 

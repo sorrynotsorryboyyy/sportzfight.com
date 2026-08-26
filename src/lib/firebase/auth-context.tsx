@@ -44,6 +44,16 @@ interface AuthValue {
    * the player can do anything else. Drives the forced-rename gate.
    */
   needsUsernameFix: boolean;
+  /**
+   * The welcome screen has never been completed. Same shape as
+   * needsUsernameFix: a derived boolean, not a self-guarding route.
+   */
+  needsOnboarding: boolean;
+  /**
+   * Creating the profile document failed. Previously swallowed, which left the
+   * player signed in with nothing and every page spinning.
+   */
+  profileError: boolean;
   /** Google is the only sign-in method in V1. */
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -84,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // profile to wait for, so there is nothing to synchronise.
   const [adminFlag, setAdminFlag] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<UserDoc | null>(null);
+  /** ensureProfile threw: the account has no profile document. */
+  const [profileError, setProfileError] = useState(false);
 
   useEffect(() => {
     if (!isFirebaseConfigured) return;
@@ -100,13 +112,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (u) {
         try {
           await ensureProfile(u);
-          // Establish a clock offset early so the lobby is already accurate.
+          setProfileError(false);
+        } catch {
+          // This used to be swallowed, which left the player signed in with no
+          // profile document and /compte spinning forever with no explanation.
+          // Onboarding makes this path hotter, so it is now surfaced.
+          setProfileError(true);
+        }
+        // Separate try: a clock probe failing is genuinely non-fatal, and it
+        // must not be mistaken for a missing profile.
+        try {
           void bootstrapClock(u.uid);
         } catch {
-          /* non-fatal: the battle screen re-measures before it matters */
+          /* the battle screen re-measures before it matters */
         }
       } else {
         resetClock();
+        setProfileError(false);
       }
       setLoading(false);
     });
@@ -143,6 +165,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAdmin = !!user && adminFlag === true;
   const roleLoading = !!user && adminFlag === null;
   const needsUsernameFix = !!profile && isLegacyName(profile.username);
+
+  // Derived from the profile, exactly like needsUsernameFix — a boolean the
+  // pages consult, not a route that guards itself. That shape has already
+  // proved it avoids redirect loops.
+  //
+  // Note profile === null means LOADING, not "absent": the snapshot arrives a
+  // round trip after sign-in. Gating on it directly would flash the welcome
+  // screen at every returning player.
+  const needsOnboarding = !!profile && !profile.onboardedAt;
   // The stored pseudo is the identity players chose; the Google display name is
   // only the seed used before the profile resolves.
   const displayName = profile?.username ?? username;
@@ -157,6 +188,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleLoading,
       profile,
       needsUsernameFix,
+      needsOnboarding,
+      profileError,
       async signInWithGoogle() {
         const provider = new GoogleAuthProvider();
         // Always show the chooser: people testing a 1vs1 app routinely want a
@@ -177,7 +210,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetClock();
       },
     }),
-    [user, displayName, avatar, loading, isAdmin, roleLoading, profile, needsUsernameFix],
+    [
+      user, displayName, avatar, loading, isAdmin, roleLoading, profile,
+      needsUsernameFix, needsOnboarding, profileError,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

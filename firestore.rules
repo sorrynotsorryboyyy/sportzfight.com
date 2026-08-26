@@ -74,6 +74,15 @@ service cloud.firestore {
            + (n % 7 == 0 ? streak7Coins() : 0);
     }
 
+    // ---- onboarding contract (must match src/lib/profile/onboarding.ts) ----
+    // A drift here does not throw: it silently denies every onboarding write.
+    function birthYearMin() { return 1920; }
+    function heightMinCm()  { return 100; }
+    function heightMaxCm()  { return 250; }
+    function weightMinKg()  { return 25; }
+    function weightMaxKg()  { return 300; }
+    function cityMax()      { return 60; }
+
     // ---- reading a finished battle to verify a stat claim ----
     // These cost one document read per rule evaluation, but Firestore memoises
     // identical get() paths within a single evaluation, so a settle that calls
@@ -157,9 +166,43 @@ service cloud.firestore {
       function usernameUnchanged() {
         return !('username' in touched());
       }
+      /**
+       * Avatar only.
+       *
+       * `username` used to be writable here, and that was a real hole: the
+       * rule checked the CHARSET but never the lock, so a modified client
+       * could display a name reserved by somebody else and the leaderboard
+       * would show two identical players. Rules cannot close it — they have no
+       * toLower(), so they cannot derive a username's lock key.
+       *
+       * Renaming now goes through /api/username, which holds the lock and the
+       * profile in one Admin SDK transaction.
+       */
       function validProfileUpdate() {
-        return touched().hasOnly(['username', 'avatar'])
-            && (usernameUnchanged() || validUsername(nu().username));
+        return touched().hasOnly(['avatar'])
+            && (nu().avatar == null || nu().avatar is string);
+      }
+
+      /**
+       * The onboarding answers a player may set themselves.
+       *
+       * accountType is capped at 'player' here: becoming a 'pro' is an
+       * application an admin approves, so letting a client write it would be a
+       * way straight into the partner programme.
+       */
+      function validOnboarding() {
+        return touched().hasOnly(['accountType', 'experience', 'goal',
+                                  'onboardedAt'])
+            && (!('accountType' in nu()) || nu().accountType == 'player')
+            && (!('experience' in nu())
+                  || nu().experience in ['beginner', 'intermediate', 'advanced'])
+            && (!('goal' in nu())
+                  || nu().goal in ['restart', 'progress', 'compete', 'fun'])
+            // Write-once and server-stamped: the welcome screen must not be
+            // re-armed, and its date must be real.
+            && (!('onboardedAt' in nu())
+                  || (u().get('onboardedAt', null) == null
+                        && nu().onboardedAt == request.time));
       }
 
       // ---------------- PHASE 1: claim a finished battle ----------------
@@ -259,11 +302,17 @@ service cloud.firestore {
                     // they decide who gets paid a commission, so a client that
                     // could write them could redirect someone else's money.
                     // Written server-side only, via /api/referral.
+                    // username joins the server-only set: see
+                    // validProfileUpdate() for why the client cannot be
+                    // trusted with it. accountType too — 'pro' is granted by
+                    // an admin approving an application, never self-declared.
                     && !touched().hasAny(['role', 'email', 'level', 'createdAt',
                                           'subscription', 'referredBy',
-                                          'partnerId', 'referredAt'])
+                                          'partnerId', 'referredAt',
+                                          'username'])
                     && (
                          validProfileUpdate()
+                      || validOnboarding()
                       || validClaim()
                       || validSettle()
                       || validAbandonClaim()
@@ -275,8 +324,37 @@ service cloud.firestore {
       // Email and anything else personal lives here: readable only by its
       // owner, and a subcollection is only listable per-parent, so it can never
       // be swept up by a leaderboard query over /users.
+      // Personal details live here rather than on the profile, because
+      // users/{uid} is listable by every signed-in account for the leaderboard
+      // — age, weight and city on that document would be harvestable in a
+      // single query.
       match /private/{docId} {
-        allow read, write: if isSelf();
+        allow read: if isSelf();
+
+        // `contact` holds the email and is written by ensureProfile; `profile`
+        // holds the optional body data. Bounds mirror onboarding.ts.
+        allow write: if isSelf()
+                     && (docId != 'profile' || (
+                          request.resource.data.keys().hasOnly(
+                            ['birthYear', 'heightCm', 'weightKg', 'gender', 'city'])
+                       && (!('birthYear' in request.resource.data)
+                            || (request.resource.data.birthYear is int
+                             && request.resource.data.birthYear >= birthYearMin()))
+                       && (!('heightCm' in request.resource.data)
+                            || (request.resource.data.heightCm is int
+                             && request.resource.data.heightCm >= heightMinCm()
+                             && request.resource.data.heightCm <= heightMaxCm()))
+                       && (!('weightKg' in request.resource.data)
+                            || (request.resource.data.weightKg is int
+                             && request.resource.data.weightKg >= weightMinKg()
+                             && request.resource.data.weightKg <= weightMaxKg()))
+                       && (!('gender' in request.resource.data)
+                            || request.resource.data.gender
+                                 in ['f', 'm', 'other', 'unspecified'])
+                       && (!('city' in request.resource.data)
+                            || (request.resource.data.city is string
+                             && request.resource.data.city.size() <= cityMax()))
+                     ));
       }
 
       // Payout receipts. Immutable once written — that immutability IS the
@@ -639,6 +717,40 @@ service cloud.firestore {
 
       // Results are permanent: no rewriting history, no deleting a loss.
       allow delete: if false;
+    }
+
+    // ===============================================================
+    // PRO APPLICATIONS — a request to join the partner programme
+    // ===============================================================
+    // Keyed by uid, so one account can only ever have one pending request.
+    // Creating one grants NOTHING: an admin reviews it and creates the partner
+    // separately. That curation is the cheapest fraud control available, and
+    // an application must not be allowed to bypass it.
+    match /partnerApplications/{uid} {
+      function mine() { return signedIn() && request.auth.uid == uid; }
+
+      allow get: if mine() || isAdmin();
+      allow list: if isAdmin();
+
+      allow create: if mine()
+                    && request.resource.data.keys().hasOnly(
+                         ['uid', 'kind', 'structure', 'city', 'discipline',
+                          'status', 'createdAt'])
+                    && request.resource.data.uid == uid
+                    && request.resource.data.kind in ['gym', 'coach']
+                    && request.resource.data.structure is string
+                    && request.resource.data.structure.size() > 0
+                    && request.resource.data.structure.size() <= 80
+                    && request.resource.data.city.size() <= cityMax()
+                    && request.resource.data.discipline.size() <= 120
+                    // An applicant cannot approve themselves.
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.createdAt == request.time;
+
+      // Only an admin decides. The applicant may not edit after submitting,
+      // which keeps what the admin reviewed and what they approved identical.
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ===============================================================

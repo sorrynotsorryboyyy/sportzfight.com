@@ -14,7 +14,7 @@ import { getExercise, DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 
 function Matchmaking() {
   const { user, loading } = useRequireAuth();
-  const { needsUsernameFix, profile } = useAuth();
+  const { needsUsernameFix, needsOnboarding, profile } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +38,12 @@ function Matchmaking() {
       router.replace('/compte');
       return;
     }
+    // The welcome screen has to be finished before a first battle, for the
+    // same reason: the name is about to be public.
+    if (needsOnboarding) {
+      router.replace('/bienvenue');
+      return;
+    }
     // Wait for the profile before deciding — otherwise the check races the
     // subscription and sends compliant users to /compte for a frame.
     if (!profile) return;
@@ -50,7 +56,7 @@ function Matchmaking() {
         setError('Impossible de trouver un adversaire. Vérifie ta connexion.');
         startedRef.current = false;
       });
-  }, [user, router, needsUsernameFix, profile, exercise.id]);
+  }, [user, router, needsUsernameFix, needsOnboarding, profile, exercise.id]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
 

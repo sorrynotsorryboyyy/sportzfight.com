@@ -10,14 +10,18 @@ import { cn } from '@/lib/utils/cn';
 export function Input({
   label,
   hint,
+  error,
   className,
   id,
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   hint?: string;
+  /** Shown in place of the hint, and announced to assistive tech. */
+  error?: string | null;
 }) {
   const inputId = id ?? `in-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const noteId = `${inputId}-note`;
 
   return (
     <div className={className}>
@@ -29,15 +33,30 @@ export function Input({
       </label>
       <input
         id={inputId}
+        aria-invalid={error ? true : undefined}
+        // Points at whichever note is rendered, so a screen reader hears the
+        // error rather than only seeing red.
+        aria-describedby={error || hint ? noteId : undefined}
         {...props}
         className={cn(
-          'mt-1 h-11 w-full rounded-xl border border-ink-700 bg-ink-850 px-3 text-sm text-ink-100',
+          'mt-1 h-11 w-full rounded-xl border bg-ink-850 px-3 text-sm text-ink-100',
           'placeholder:text-ink-600',
-          'focus:border-cyan-glow focus:outline-none focus:ring-2 focus:ring-cyan-glow/40',
+          'focus:outline-none focus:ring-2',
+          error
+            ? 'border-flare-500 focus:border-flare-400 focus:ring-flare-500/40'
+            : 'border-ink-700 focus:border-cyan-glow focus:ring-cyan-glow/40',
           'disabled:opacity-50',
         )}
       />
-      {hint && <p className="mt-1 text-3xs text-ink-600">{hint}</p>}
+      {(error || hint) && (
+        <p
+          id={noteId}
+          role={error ? 'alert' : undefined}
+          className={cn('mt-1 text-3xs', error ? 'text-flare-400' : 'text-ink-600')}
+        >
+          {error || hint}
+        </p>
+      )}
     </div>
   );
 }

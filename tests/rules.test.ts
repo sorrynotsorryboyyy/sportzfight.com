@@ -922,13 +922,11 @@ describe('user profiles — the admin role', () => {
     // Without this, the negative tests above are satisfied by a rule that
     // simply froze every admin profile — a very different bug.
     await consoleSetProfile(P1, { role: 'admin' });
+    // Avatar, not username: renaming moved behind /api/username when the
+    // client lost the right to write it. The point of the test is unchanged —
+    // an admin profile must not be frozen.
     await assertSucceeds(
-      // Charset-compliant: 'Rocky II' has a space, which the username rules
-      // now reject for a reason unrelated to what this test is checking.
-      updateDoc(doc(dbOf(P1), 'users', P1), {
-        username: 'RockyTwo',
-        avatar: null,
-      }),
+      updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
     );
   });
 
@@ -1272,14 +1270,19 @@ describe('usernames — legacy migration', () => {
     );
   });
 
-  it('lets a legacy account replace the name with a compliant one', async () => {
+  it('cannot fix a legacy name from the client any more', async () => {
+    // The forced-rename flow now goes through /api/username, which holds the
+    // lock. A legacy name has no lock at all, which is exactly the case the
+    // server route handles and the rules cannot.
     await consoleWrite('users/' + P1, LEGACY);
-    await assertSucceeds(
+    await assertFails(
       updateDoc(doc(dbOf(P1), 'users', P1), { username: 'LeoChevalier' }),
     );
   });
 
   it('REJECTS replacing it with another non-compliant name', async () => {
+    // Still denied, now for two reasons rather than one: the charset, and
+    // username being server-only.
     await consoleWrite('users/' + P1, LEGACY);
     await assertFails(
       updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Léo Chevalier 2' }),
@@ -1912,10 +1915,10 @@ describe('subscription - only the webhook can grant a paid plan', () => {
   });
 
   it('still allows an ordinary profile edit on an account that has one', async () => {
-    // The guard must not lock a paying customer out of renaming themselves.
+    // The guard must not freeze a paying customer's profile.
     await consoleWrite('users/' + P1, profile({ subscription: paid() }));
     await assertSucceeds(
-      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Balboa' }),
+      updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
     );
   });
 
@@ -2108,10 +2111,263 @@ describe('partners and payments - the money boundary', () => {
   });
 
   it('still allows an ordinary edit on an attributed account', async () => {
-    // The guard must not lock a referred player out of renaming themselves.
+    // The guard must not freeze a referred player's profile.
     await consoleWrite('users/' + P1, profile({ partnerId: 'partner-1' }));
     await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
+    );
+  });
+});
+
+describe('onboarding and the username hole', () => {
+  /**
+   * The username used to be writable straight onto users/{uid}. The rule
+   * checked the CHARSET but never the lock, so a modified client could display
+   * a name reserved by somebody else and the leaderboard would show two
+   * identical players. Rules cannot close that themselves — no toLower(), so
+   * they cannot derive a name's lock key — hence /api/username.
+   */
+
+  const profile = (over = {}) => ({
+    username: 'Rocky',
+    avatar: null,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    xp: 0,
+    coins: 0,
+    totalReps: 0,
+    battlesPlayed: 0,
+    bestScore: 0,
+    ...over,
+  });
+
+  it('REFUSES writing a username directly, lock or no lock', async () => {
+    // THE fix. Previously this succeeded.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
       updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Balboa' }),
+    );
+  });
+
+  it('REFUSES stealing a name whose lock belongs to someone else', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await consoleWrite('users/' + P2, profile({ username: 'Apollo' }));
+    await consoleWrite('usernames/apollo', { uid: P2 });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { username: 'Apollo' }),
+    );
+  });
+
+  it('still lets a player change their avatar', async () => {
+    // Narrowing the rule must not lock everyone out of the rest of the profile.
+    await consoleWrite('users/' + P1, profile());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
+    );
+  });
+
+  it('accepts the onboarding answers a player may set', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        accountType: 'player',
+        experience: 'beginner',
+        goal: 'progress',
+        onboardedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('REFUSES declaring oneself a pro', async () => {
+    // 'pro' is granted by an admin approving an application. Self-declaring
+    // would be a way straight into the partner programme.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { accountType: 'pro' }),
+    );
+  });
+
+  it('REFUSES an onboarding value outside its enumeration', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { experience: 'godlike' }),
+    );
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { goal: 'cheat' }),
+    );
+  });
+
+  it('REFUSES backdating onboardedAt', async () => {
+    // A client-chosen date is how you would fake having been here for months.
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        onboardedAt: Timestamp.fromMillis(Date.now() - 86_400_000),
+      }),
+    );
+  });
+
+  it('REFUSES re-arming the welcome screen once it is done', async () => {
+    // Write-once: otherwise the flag could be cleared and reset at will.
+    await consoleWrite('users/' + P1, profile({ onboardedAt: Timestamp.now() }));
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), { onboardedAt: serverTimestamp() }),
+    );
+  });
+
+  it('REFUSES smuggling a username into an onboarding write', async () => {
+    await consoleWrite('users/' + P1, profile());
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'users', P1), {
+        accountType: 'player',
+        username: 'Balboa',
+      }),
+    );
+  });
+});
+
+describe('the private profile', () => {
+  const priv = (over = {}) => ({
+    birthYear: 1995,
+    heightCm: 180,
+    weightKg: 72,
+    gender: 'm',
+    city: 'Lyon',
+    ...over,
+  });
+
+  it('lets a player write their own details', async () => {
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'users', P1, 'private', 'profile'), priv()),
+    );
+  });
+
+  it('REFUSES reading someone else\u2019s details', async () => {
+    // The whole reason these live off the public profile: users/{uid} is
+    // listable by every signed-in account.
+    await consoleWrite('users/' + P1 + '/private/profile', priv());
+    await assertFails(
+      getDoc(doc(dbOf(P2), 'users', P1, 'private', 'profile')),
+    );
+  });
+
+  it('REFUSES writing into another account', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'users', P2, 'private', 'profile'), priv()),
+    );
+  });
+
+  it('REFUSES values outside their bounds', async () => {
+    for (const bad of [
+      { birthYear: 1850 },
+      { heightCm: 5 },
+      { heightCm: 400 },
+      { weightKg: 2 },
+      { weightKg: 900 },
+      { gender: 'whatever' },
+      { city: 'x'.repeat(200) },
+    ]) {
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'users', P1, 'private', 'profile'), priv(bad)),
+      );
+    }
+  });
+
+  it('REFUSES an unknown field', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'users', P1, 'private', 'profile'), {
+        ...priv(),
+        bloodType: 'O+',
+      }),
+    );
+  });
+
+  it('leaves the contact subdocument alone', async () => {
+    // Only `profile` is shape-checked; `contact` predates this and is written
+    // by ensureProfile.
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'users', P1, 'private', 'contact'), {
+        email: 'x@y.z',
+      }),
+    );
+  });
+});
+
+describe('pro applications', () => {
+  const application = (over = {}) => ({
+    uid: P1,
+    kind: 'gym',
+    structure: 'Salle FitPro',
+    city: 'Lyon',
+    discipline: 'Cross-training',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+    ...over,
+  });
+
+  it('lets a player apply', async () => {
+    await assertSucceeds(
+      setDoc(doc(dbOf(P1), 'partnerApplications', P1), application()),
+    );
+  });
+
+  it('REFUSES applying on behalf of someone else', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'partnerApplications', P2), application({ uid: P2 })),
+    );
+  });
+
+  it('REFUSES self-approving', async () => {
+    // The entire point of the separation: an application grants nothing.
+    await assertFails(
+      setDoc(
+        doc(dbOf(P1), 'partnerApplications', P1),
+        application({ status: 'approved' }),
+      ),
+    );
+  });
+
+  it('REFUSES editing an application after submitting', async () => {
+    // What the admin reviewed and what they approve must be the same thing.
+    await consoleWrite('partnerApplications/' + P1, {
+      ...application(),
+      createdAt: Timestamp.now(),
+    });
+    await assertFails(
+      updateDoc(doc(dbOf(P1), 'partnerApplications', P1), {
+        structure: 'Autre chose',
+      }),
+    );
+  });
+
+  it('REFUSES an application with no structure name', async () => {
+    await assertFails(
+      setDoc(doc(dbOf(P1), 'partnerApplications', P1), application({ structure: '' })),
+    );
+  });
+
+  it('REFUSES reading another applicant', async () => {
+    await consoleWrite('partnerApplications/' + P1, {
+      ...application(),
+      createdAt: Timestamp.now(),
+    });
+    await assertFails(getDoc(doc(dbOf(P2), 'partnerApplications', P1)));
+  });
+
+  it('lets an admin read and decide', async () => {
+    await consoleWrite('users/' + P2, {
+      username: 'Boss',
+      avatar: null,
+      role: 'admin',
+    });
+    await consoleWrite('partnerApplications/' + P1, {
+      ...application(),
+      createdAt: Timestamp.now(),
+    });
+    await assertSucceeds(getDoc(doc(dbOf(P2), 'partnerApplications', P1)));
+    await assertSucceeds(
+      updateDoc(doc(dbOf(P2), 'partnerApplications', P1), { status: 'approved' }),
     );
   });
 });

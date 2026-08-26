@@ -1,5 +1,6 @@
 'use client';
 
+import { apiPost } from './api';
 import {
   doc,
   getDoc,
@@ -69,38 +70,37 @@ export async function changeUsername(
   const problem = validateUsername(clean);
   if (problem) throw new UsernameError('invalid', USERNAME_MESSAGES[problem]);
 
-  const sameKey = current && usernameKey(current) === usernameKey(clean);
-  if (sameKey && current === clean) {
-    throw new UsernameError('unchanged', 'C’est déjà ton pseudo.');
+  if (current && current === clean) {
+    throw new UsernameError('unchanged', 'C\u2019est d\u00e9j\u00e0 ton pseudo.');
   }
 
-  try {
-    await runTransaction(db(), async (tx) => {
-      const nextLock = lockRef(clean);
-      const existing = await tx.get(nextLock);
+  // Delegated to the server. The client used to run this transaction itself,
+  // but the rules could only check the CHARSET of users/{uid}.username, never
+  // the lock — they have no toLower() and so cannot derive a name's lock key.
+  // A modified client could therefore display a name someone else had
+  // reserved, putting two identical players on the leaderboard.
+  //
+  // The route holds both documents in one Admin SDK transaction, and the rules
+  // now deny `username` on every client path.
+  const r = await apiPost<{ username: string }>('/api/username', {
+    username: clean,
+  });
 
-      if (existing.exists() && existing.data()?.uid !== uid) {
-        throw new UsernameError('taken', 'Ce pseudo est déjà pris.');
-      }
+  if (r.ok) return;
 
-      // Release the previous lock only when the key genuinely changes;
-      // "Rocky" -> "rocky" keeps the same document.
-      if (current && !sameKey) {
-        tx.delete(lockRef(current));
-      }
-      if (!existing.exists()) {
-        tx.set(nextLock, { uid });
-      }
-
-      tx.update(userRef(uid), { username: clean });
-    });
-  } catch (e) {
-    if (e instanceof UsernameError) throw e;
+  if (r.status === 409) {
+    throw new UsernameError('taken', 'Ce pseudo est d\u00e9j\u00e0 pris.');
+  }
+  if (r.status === 400 && r.error && r.error in USERNAME_MESSAGES) {
     throw new UsernameError(
-      'denied',
-      'Impossible de changer le pseudo. Réessaie.',
+      'invalid',
+      USERNAME_MESSAGES[r.error as keyof typeof USERNAME_MESSAGES],
     );
   }
+  throw new UsernameError(
+    'denied',
+    'Impossible de changer le pseudo. R\u00e9essaie.',
+  );
 }
 
 /**

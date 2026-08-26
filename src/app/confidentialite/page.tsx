@@ -104,6 +104,12 @@ export default function Confidentialite() {
                 keep="Jusqu’à la suppression du compte"
               />
               <Row
+                what="Facultatif : année de naissance, taille, poids, sexe, ville"
+                why="Classements par catégorie et statistiques personnelles"
+                basis="Consentement — tout est facultatif et retirable"
+                keep="Jusqu’à la suppression du compte ou du champ"
+              />
+              <Row
                 what="Journaux techniques (adresse IP, horodatage)"
                 why="Sécurité, prévention des abus, fonctionnement du service"
                 basis="Intérêt légitime"
@@ -139,7 +145,28 @@ export default function Confidentialite() {
         </ul>
       </Section>
 
-      <Section title="4. Ce qui est visible par les autres">
+      <Section title="4. Les informations facultatives">
+        <p>
+          À l’inscription, nous proposons de renseigner votre année de
+          naissance, votre taille, votre poids, votre catégorie et votre ville.
+          <strong> Rien de tout cela n’est obligatoire</strong> : vous pouvez
+          passer cette étape et utiliser le service normalement.
+        </p>
+        <p>
+          Ces données sont stockées <strong>séparément de votre profil
+          public</strong>, dans un espace lisible par vous seul. Elles ne sont
+          jamais affichées aux autres joueurs, ni aux partenaires, ni au
+          classement. Elles préparent des fonctionnalités à venir : classements
+          par catégorie d’âge ou de gabarit.
+        </p>
+        <p>
+          Vous pouvez les modifier ou les effacer à tout moment depuis votre
+          compte. La base légale est votre consentement, que vous pouvez
+          retirer sans conséquence sur le reste du service.
+        </p>
+      </Section>
+
+      <Section title="5. Ce qui est visible par les autres">
         <p>
           Pour qu’un classement existe, certaines informations sont publiques
           auprès des personnes connectées :{' '}
@@ -156,7 +183,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="5. Parrainage par un partenaire">
+      <Section title="6. Parrainage par un partenaire">
         <p>
           Si vous vous inscrivez via le lien d’une salle de sport ou d’un coach
           partenaire, votre compte est rattaché à ce partenaire afin de calculer
@@ -178,7 +205,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="6. Paiements">
+      <Section title="7. Paiements">
         <p>
           Lorsqu’une facture est réglée, nous enregistrons son montant, sa
           devise, sa date, l’abonnement concerné et son identifiant Stripe.
@@ -193,7 +220,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="7. Destinataires et sous-traitants">
+      <Section title="8. Destinataires et sous-traitants">
         <ul className="ml-4 list-disc space-y-1">
           <li>
             <strong>Google Ireland Limited</strong> (Firebase) — authentification
@@ -221,7 +248,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="8. Cookies et stockage local">
+      <Section title="9. Cookies et stockage local">
         <p>
           Le site <strong>ne dépose aucun cookie publicitaire ni de mesure
           d’audience</strong>. Aucune bannière de consentement n’est donc
@@ -240,7 +267,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="9. Vos droits">
+      <Section title="10. Vos droits">
         <p>
           Vous disposez des droits d’accès, de rectification, d’effacement, de
           limitation, d’opposition et de portabilité prévus par le RGPD.
@@ -268,7 +295,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="10. Mineurs">
+      <Section title="11. Mineurs">
         <p>
           Le service n’est pas destiné aux personnes de moins de 15 ans. En cas
           d’inscription d’un mineur de moins de 15 ans sans le consentement du
@@ -277,7 +304,7 @@ export default function Confidentialite() {
         </p>
       </Section>
 
-      <Section title="11. Modification">
+      <Section title="12. Modification">
         <p>
           Cette politique peut évoluer. La date de dernière mise à jour figure en
           haut de page ; en cas de changement substantiel, vous en serez informé

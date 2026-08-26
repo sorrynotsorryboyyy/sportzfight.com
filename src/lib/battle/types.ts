@@ -1,3 +1,4 @@
+import type { AccountType, Experience, Goal } from '@/lib/profile/onboarding';
 import type { Subscription } from '@/lib/subscription';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -102,6 +103,31 @@ export interface UserDoc {
    * being lost or paid twice.
    */
   pendingBattleId?: string | null;
+
+  /**
+   * Onboarding answers, public half. The personal details (age, height,
+   * weight, gender, city) live in users/{uid}/private/profile instead: this
+   * document is listable by every signed-in account for the leaderboard.
+   *
+   * `experience` deliberately avoids the name `level`, which already means the
+   * XP-derived level and is denied to clients.
+   *
+   * `accountType` is capped at 'player' for client writes — 'pro' is granted
+   * by an admin approving an application.
+   */
+  accountType?: AccountType;
+  experience?: Experience;
+  goal?: Goal;
+  /** Server-stamped, write-once. Its absence is what shows /bienvenue. */
+  onboardedAt?: Timestamp | null;
+
+  /**
+   * Referral attribution. Written only by /api/referral through the Admin SDK
+   * and denied to clients: these decide who is paid a commission.
+   */
+  partnerId?: string | null;
+  referredBy?: string | null;
+  referredAt?: Timestamp | null;
 
   /**
    * Paid plan, or absent for a free account.

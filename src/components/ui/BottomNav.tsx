@@ -108,14 +108,16 @@ function Tab({
 }
 
 export function BottomNav({ className }: { className?: string }) {
-  const { user, needsUsernameFix } = useAuth();
+  const { user, needsUsernameFix, needsOnboarding } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [sheet, setSheet] = useState(false);
 
   // A legacy pseudo is a genuine dead end: matchmaking bounces to /compte until
   // it is fixed, so offering the bar would only mislead.
-  if (needsUsernameFix) return null;
+  // Same reasoning for onboarding: offering navigation out of a screen the
+  // player must complete would only mislead.
+  if (needsUsernameFix || needsOnboarding) return null;
 
   // Deliberately NOT gated on `loading`. Hiding the bar until Firebase answers
   // makes it flicker in on every page load. Signed out is a valid state — the
