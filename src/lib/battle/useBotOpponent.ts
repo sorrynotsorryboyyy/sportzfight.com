@@ -45,7 +45,7 @@ export function useBotOpponent(
   const seated = useRef(false);
 
   const isBot = !!battle?.botLevel;
-  const id = battle?.id ?? null;
+  const battleId = battle?.id ?? null;
 
   // A new battle means a new plan. Seeded from the document so the same match
   // replays identically when debugging.
@@ -55,60 +55,72 @@ export function useBotOpponent(
     readied.current = false;
     finalised.current = false;
     seated.current = false;
-  }, [id]);
+  }, [battleId]);
 
   // ---- seat the bot, but only after giving a human the chance ----
   //
   // Done here rather than in matchmaking so a real player arriving during the
   // wait still wins the seat: the join rule is a compare-and-swap on player2,
   // so whoever commits first takes it and the other write is denied.
+  //
+  // The dependencies are PRIMITIVES, not the battle document. The heartbeat
+  // rewrites that document every 5 seconds, so depending on it tore down this
+  // 8-second timer before it could ever fire — the bot never arrived, and the
+  // lobby waited forever exactly as it did before bots existed.
+  const waitingAlone =
+    isBot && slot === 1 && battle?.player2 == null && battle?.status === 'waiting';
+  const player1 = battle?.player1 ?? null;
+
   useEffect(() => {
-    // isBot, not just slot 1: a human battle has no botLevel, so seating would
-    // be denied on every attempt.
-    if (!battle || !isBot || slot !== 1) return;
-    if (battle.player2 != null || battle.status !== 'waiting') return;
+    if (!waitingAlone || !battleId || !player1) return;
     if (seated.current) return;
 
     const timer = setTimeout(() => {
       seated.current = true;
-      void joinAsBot(battle.id, battle.player1).catch(() => {
+      void joinAsBot(battleId, player1).catch(() => {
         // A human beat us to the seat, which is the outcome we prefer.
         seated.current = false;
       });
     }, BOT_JOIN_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [battle, isBot, slot]);
+  }, [waitingAlone, battleId, player1]);
 
   // ---- ready, so the countdown can start ----
+  const botSeated = isBot && slot === 1 && battle?.player2 != null;
+  const botReady = battle?.player2Ready === true;
+
   useEffect(() => {
-    if (!battle || !isBot || slot !== 1) return;
-    if (readied.current || battle.player2Ready) return;
-    if (battle.player2 == null) return; // not seated yet
+    if (!botSeated || !battleId || botReady) return;
+    if (readied.current) return;
 
     readied.current = true;
-    void updateDoc(doc(db(), 'battles', battle.id), {
+    void updateDoc(doc(db(), 'battles', battleId), {
       player2Ready: true,
     }).catch(() => {
       // A denied write here just means no countdown; the lobby stays put
       // rather than showing a half-started match.
       readied.current = false;
     });
-  }, [battle, isBot, slot]);
+  }, [botSeated, botReady, battleId]);
 
   // ---- score, on the human cadence ----
+  //
+  // Primitives again, for the same reason as the seating effect and more
+  // urgently: during a live battle the document changes on every score write,
+  // so depending on it would restart this interval before it could ever tick.
+  const live = isBot && slot === 1 && battle?.status === 'live';
+  const startedMs = battle?.startedAt?.toMillis() ?? null;
+  const durationSecs = battle?.durationSecs ?? null;
+  const level = battle?.botLevel ?? 'normal';
+  const seed = battle?.botSeed ?? 1;
+
   useEffect(() => {
-    if (!battle || !isBot || slot !== 1) return;
-    if (battle.status !== 'live' || !battle.startedAt) return;
+    if (!live || !battleId || startedMs == null || durationSecs == null) return;
     if (finalised.current) return;
 
-    const startedMs = battle.startedAt.toMillis();
     if (!plan.current) {
-      plan.current = planBot(
-        battle.durationSecs,
-        battle.botLevel ?? 'normal',
-        battle.botSeed ?? 1,
-      );
+      plan.current = planBot(durationSecs, level, seed);
     }
 
     const tick = async () => {
@@ -117,7 +129,7 @@ export function useBotOpponent(
 
       const now = serverNow();
       const elapsed = now - goInstantMs(startedMs);
-      const past = now > hardEndMs(startedMs, battle.durationSecs);
+      const past = now > hardEndMs(startedMs, durationSecs);
 
       const target = past ? p.total : botScoreAt(p, elapsed);
       // Monotonic: the rules reject any decrease, and a rejected write would
@@ -127,7 +139,7 @@ export function useBotOpponent(
       const score = Math.max(committed.current, target);
       writing.current = true;
       try {
-        await updateDoc(doc(db(), 'battles', battle.id), {
+        await updateDoc(doc(db(), 'battles', battleId), {
           player2Score: score,
           player2Final: past,
           player2Meta: { autoReps: score, manualAdjust: 0, source: 'camera' },
@@ -145,5 +157,5 @@ export function useBotOpponent(
     void tick();
     const timer = setInterval(() => void tick(), SCORE_FLUSH_MS);
     return () => clearInterval(timer);
-  }, [battle, isBot, slot]);
+  }, [live, battleId, startedMs, durationSecs, level, seed]);
 }

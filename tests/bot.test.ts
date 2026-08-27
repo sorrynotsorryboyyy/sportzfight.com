@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   BOT_MAX_REPS,
@@ -10,10 +11,12 @@ import {
 } from '../src/lib/battle/bot';
 import {
   DEFAULT_DURATION_SECS,
+  HEARTBEAT_MS,
   MAX_SCORE,
   MAX_SCORE_JUMP,
   SCORE_FLUSH_MS,
 } from '../src/lib/battle/constants';
+import { BOT_JOIN_DELAY_MS } from '../src/lib/battle/useBotOpponent';
 
 /**
  * The bot writes to a battle document the security rules police, so a curve
@@ -169,5 +172,37 @@ describe('the contract with the rules', () => {
       worst = Math.max(worst, plan.curve[i] - plan.curve[i - perFlush]);
     }
     expect(worst).toBeLessThan(MAX_SCORE_JUMP);
+  });
+});
+
+describe('the driver survives a changing document', () => {
+  const HOOK = readFileSync('src/lib/battle/useBotOpponent.ts', 'utf8');
+
+  /**
+   * The bug that shipped: every effect depended on the whole battle document.
+   * A heartbeat rewrites that document every 5 seconds, so the 8-second
+   * seating timer was torn down and restarted forever and the bot never
+   * arrived — the lobby waited exactly as it had before bots existed.
+   *
+   * Asserted on the source rather than by rendering: the failure is a
+   * dependency-array mistake, which a render test would not see without a
+   * fake Firestore emitting snapshots on a timer.
+   */
+  it('never depends on the whole battle object', () => {
+    const deps = [...HOOK.matchAll(/\}, \[([^\]]*)\]\);/g)].map((m) => m[1]);
+    expect(deps.length).toBeGreaterThan(0);
+    for (const d of deps) {
+      const names = d.split(',').map((x) => x.trim()).filter(Boolean);
+      expect(
+        names.includes('battle'),
+        `an effect depends on \`battle\`, which the heartbeat rewrites every ${HEARTBEAT_MS / 1000}s`,
+      ).toBe(false);
+    }
+  });
+
+  it('waits longer than a heartbeat before seating', () => {
+    // If the delay were shorter than the heartbeat the bug would have been
+    // invisible, and a real player would have had no chance to take the seat.
+    expect(BOT_JOIN_DELAY_MS).toBeGreaterThan(HEARTBEAT_MS);
   });
 });
