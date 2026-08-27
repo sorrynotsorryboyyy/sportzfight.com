@@ -227,7 +227,10 @@ describe('squat counting — the cheat gates', () => {
       t.ms += 33;
     }
     for (let i = 0; i < 120; i++) {
-      det.process(frame({ kneeAngle: i % 2 ? 117 : 148 }), t.ms);
+      // Straddling DOWN_EXIT (112) and UP_EXIT (150): deep enough to
+      // leave `up`, never deep enough to enter `down`. These values
+      // tracked DOWN_EXIT when it was 115 and have to keep tracking it.
+      det.process(frame({ kneeAngle: i % 2 ? 114 : 148 }), t.ms);
       t.ms += 33;
     }
     expect(det.autoReps).toBe(0);
@@ -302,5 +305,188 @@ describe('config sanity', () => {
     expect(SQUAT_CONFIG.UP_EXIT).toBeLessThan(SQUAT_CONFIG.UP_ENTER);
     expect(SQUAT_CONFIG.DOWN_EXIT).toBeGreaterThan(SQUAT_CONFIG.DOWN_ENTER);
     expect(SQUAT_CONFIG.DOWN_EXIT).toBeLessThan(SQUAT_CONFIG.UP_EXIT);
+  });
+});
+
+describe('squat depth — the half-rep band', () => {
+  /**
+   * The band the shipped detector waved through.
+   *
+   * MIN_ROM_DEG was 50 and the envelope is measured from STANDING (~175), so
+   * ROM >= 50 was satisfied by any bottom <= 126 — while DOWN_ENTER claimed to
+   * demand 100. Nothing tested between those two numbers, so nothing caught
+   * that ROM, not depth, was the binding gate. These are the reps a player
+   * could do all day and score on.
+   */
+  it.each([105, 112, 120])('REJECTS a half squat bottoming at %i deg', (bottom) => {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 5; i++) doRep(det, t, { bottom });
+    expect(det.autoReps).toBe(0);
+  });
+
+  it('ACCEPTS a genuine parallel squat', () => {
+    // "Cuisses parallèles au sol" — the standard the app now holds people to.
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 5; i++) doRep(det, t, { bottom: 92 });
+    expect(det.autoReps).toBe(5);
+  });
+
+  it('ACCEPTS a squat that goes below parallel', () => {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 3; i++) doRep(det, t, { bottom: 80 });
+    expect(det.autoReps).toBe(3);
+  });
+
+  it('REJECTS a half squat driven at speed, with no dwell at the bottom', () => {
+    /**
+     * doRep holds the bottom long enough for the EMA to settle. A real athlete
+     * does not: they reverse immediately. Driven with no dwell, so the recorded
+     * minimum comes from a moving trace rather than a settled one.
+     *
+     * Worth stating plainly: the smoothing lags, so a fast dip reads SHALLOWER
+     * than the body actually went, never deeper. That direction is the safe
+     * one — it can cost an honest athlete a rep, but it cannot manufacture
+     * depth that did not happen.
+     */
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    const step = (angle: number) => {
+      det.process(frame({ kneeAngle: angle }), t.ms);
+      t.ms += 33;
+    };
+
+    for (let cycle = 0; cycle < 6; cycle++) {
+      for (let i = 0; i < 6; i++) step(175);
+      for (let a = 170; a >= 110; a -= 5) step(a);
+      for (let a = 110; a <= 175; a += 5) step(a);
+      step(176);
+    }
+
+    expect(det.autoReps).toBe(0);
+  });
+
+  it('REJECTS bobbing after a single touch of depth', () => {
+    /**
+     * One shallow dip put the detector into `down`, and every later bob
+     * between DOWN_EXIT and UP_ENTER re-entered `down` then credited on the
+     * way up. descentStartMs was never reseated, so cycleMs only grew and
+     * MIN_REP_MS stopped resisting after the first rep.
+     */
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    const step = (angle: number) => {
+      det.process(frame({ kneeAngle: angle }), t.ms);
+      t.ms += 33;
+    };
+
+    for (let i = 0; i < 5; i++) step(175);
+    for (let a = 175; a >= 92; a -= 10) step(a);
+    for (let i = 0; i < 7; i++) step(92);
+    for (let a = 92; a <= 175; a += 10) step(a);
+    step(176);
+    expect(det.autoReps).toBe(1);
+
+    // Every subsequent shallow bob must earn its own depth.
+    for (let cycle = 0; cycle < 8; cycle++) {
+      for (let a = 175; a >= 118; a -= 10) step(a);
+      for (let i = 0; i < 6; i++) step(118);
+      for (let a = 118; a <= 175; a += 10) step(a);
+      step(176);
+    }
+    expect(det.autoReps).toBe(1);
+  });
+
+  it('REJECTS re-entering depth from mid-ascent without a fresh descent', () => {
+    // A rep with a mid-ascent collapse is not a clean rep. This is a
+    // DELIBERATE tightening: before, the shallow re-entry rode on the first
+    // dip's envelope and scored.
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    const step = (angle: number) => {
+      det.process(frame({ kneeAngle: angle }), t.ms);
+      t.ms += 33;
+    };
+
+    for (let i = 0; i < 5; i++) step(175);
+    for (let a = 175; a >= 92; a -= 10) step(a);
+    for (let i = 0; i < 7; i++) step(92);
+    // rise to 130 (ascending), sink back to 92 (re-enters `down`), then out
+    for (let a = 92; a <= 130; a += 10) step(a);
+    for (let a = 130; a >= 92; a -= 10) step(a);
+    for (let i = 0; i < 7; i++) step(92);
+    for (let a = 92; a <= 175; a += 10) step(a);
+    step(176);
+
+    // The re-entry reseats the envelope, so this second bottom qualifies on
+    // its own — and it cannot: ROM is measured from 92, not from standing.
+    expect(det.autoReps).toBe(0);
+  });
+});
+
+describe('the gates agree with each other', () => {
+  /**
+   * THE invariant this detector shipped without.
+   *
+   * The squat envelope is NOT reset on up -> descending, so repMaxAngle holds
+   * the standing angle (~175) and ROM = 175 - bottom. With MIN_ROM_DEG at 50
+   * that admitted bottom <= 126 while DOWN_ENTER claimed to demand 100: two
+   * gates disagreeing by 26 degrees, with the LOOSER one binding. Every half
+   * squat in that band scored. Pushup gets this property for free by resetting
+   * its envelope; squat has to assert it.
+   */
+  /**
+   * Measured, not derived.
+   *
+   * The tempting formula is ROM = standing - bottom, and it is WRONG: the
+   * envelope is reseeded on every settled standing frame and the smoothing
+   * eats part of the descent, so a rep bottoming at 90 records 70.6 degrees of
+   * range, not 85. Deriving MIN_ROM_DEG from the formula rather than measuring
+   * it is exactly how the shipped config ended up 26 degrees apart from the
+   * depth it claimed to enforce. This helper replays a real rep through the
+   * detector and reports what the gates actually saw.
+   */
+  function peakOf(bottom: number) {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    let rom = 0;
+    let drop = 0;
+    const step = (angle: number) => {
+      const r = det.process(frame({ kneeAngle: angle }), t.ms);
+      rom = Math.max(rom, r.debug?.rangeOfMotion ?? 0);
+      const d = r.debug?.hipDeviation ?? Number.NaN;
+      if (Number.isFinite(d)) drop = Math.max(drop, d);
+      t.ms += 33;
+    };
+    for (let i = 0; i < 5; i++) step(175);
+    for (let a = 175; a >= bottom; a -= 10) step(a);
+    for (let h = 0; h < 7; h++) step(bottom);
+    for (let a = bottom; a <= 175; a += 10) step(a);
+    step(176);
+    return { rom, drop, counted: det.autoReps };
+  }
+
+  it('never lets the ROM gate be looser than the depth gate', () => {
+    // A rep that just reaches depth must clear MIN_ROM_DEG, and a half squat
+    // must not. The bug was that the second half of this was false: ROM
+    // admitted a bottom of 126 while depth claimed to demand 100.
+    expect(peakOf(92).rom).toBeGreaterThanOrEqual(SQUAT_CONFIG.MIN_ROM_DEG);
+    expect(peakOf(105).rom).toBeLessThan(SQUAT_CONFIG.MIN_ROM_DEG);
+    expect(peakOf(120).rom).toBeLessThan(SQUAT_CONFIG.MIN_ROM_DEG);
+  });
+
+  it('asks for a hip drop consistent with the knee angle it demands', () => {
+    // A parallel squat must clear MIN_HIP_DROP, or the two gates contradict
+    // and a textbook rep is rejected for a reason the athlete cannot see.
+    expect(peakOf(92).drop).toBeGreaterThan(SQUAT_CONFIG.MIN_HIP_DROP);
+    // And the half squat the old 0.10 waved through must not.
+    expect(peakOf(126).drop).toBeLessThan(SQUAT_CONFIG.MIN_HIP_DROP);
+  });
+
+  it('demands real depth, not a quarter squat', () => {
+    // Guards the headline number against a well-meaning future loosening.
+    expect(SQUAT_CONFIG.DOWN_ENTER).toBeLessThanOrEqual(95);
   });
 });

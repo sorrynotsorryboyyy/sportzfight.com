@@ -1,4 +1,5 @@
 import { MAX_SCORE, MAX_SCORE_JUMP } from './constants';
+import type { Experience } from '@/lib/profile/onboarding';
 
 /**
  * A training opponent.
@@ -28,6 +29,85 @@ const TARGET: Record<BotLevel, [number, number]> = {
   normal: [24, 33],
   hard: [31, BOT_MAX_REPS],
 };
+
+/**
+ * How many battles before real results outrank the self-assessment.
+ *
+ * Three, not one: a first battle is heavily contaminated by learning the
+ * camera framing, and a single fluke would pin the player to the wrong tier
+ * for several matches afterwards.
+ */
+export const BOT_LEVEL_MIN_BATTLES = 3;
+
+/*
+ * bestScore cutoffs, read against TARGET above.
+ *
+ *   easy   [18, 26]  midpoint 22
+ *   normal [24, 33]  midpoint 28.5
+ *   hard   [31, 40]  midpoint 35.5
+ *
+ * A player whose best is 22 meets an easy bot averaging 22: a coin flip. Same
+ * at 29 against normal, and at 36 against hard. The boundaries sit midway
+ * between those midpoints, so whichever side of one a player falls on, they
+ * get the bot whose band their score sits nearest the centre of.
+ */
+const EASY_MAX_BEST = 25;
+const NORMAL_MAX_BEST = 32;
+
+const BY_EXPERIENCE: Record<Experience, BotLevel> = {
+  beginner: 'easy',
+  intermediate: 'normal',
+  advanced: 'hard',
+};
+
+/**
+ * Just the fields the tier decision reads.
+ *
+ * Structural rather than importing UserDoc, which already imports BotLevel
+ * from this file. UserDoc satisfies it, so call sites need no cast.
+ */
+export interface TieringProfile {
+  experience?: Experience;
+  battlesPlayed?: number;
+  bestScore?: number;
+}
+
+/**
+ * Pick a difficulty that gives this player a real fight.
+ *
+ * Two-stage, because the two available signals are good at different moments.
+ * Before three battles the only honest signal is what the player DECLARED at
+ * onboarding — noisy, but it is what they told us, and it beats what this
+ * shipped with: a hardcoded 'normal' for everyone, which left 'easy' and
+ * 'hard' as dead code and sent every beginner against a 28-rep opponent.
+ *
+ * From three battles on, bestScore is a measurement, and a measurement beats a
+ * self-assessment: people who call themselves beginners routinely put up 30
+ * reps, and the reverse happens just as often.
+ *
+ * The goal is a CLOSE match, not a guaranteed win and not a guaranteed loss.
+ *
+ * `profile` is null while the auth snapshot is still in flight — that means
+ * LOADING, not "no account". Callers should wait for it rather than rely on
+ * this function to be right (/matchmaking already does). The fallback exists
+ * so a caller that forgets gets the middle answer instead of an extreme one.
+ */
+export function botLevelFor(profile: TieringProfile | null | undefined): BotLevel {
+  if (!profile) return 'normal';
+
+  // Enough real results to trust them over the self-assessment.
+  if ((profile.battlesPlayed ?? 0) >= BOT_LEVEL_MIN_BATTLES) {
+    const best = profile.bestScore ?? 0;
+    if (best <= EASY_MAX_BEST) return 'easy';
+    if (best <= NORMAL_MAX_BEST) return 'normal';
+    return 'hard';
+  }
+
+  // Onboarding is skippable and `experience` is optional, so its absence is
+  // ordinary rather than an error. 'normal' is the honest answer to "unknown".
+  const declared = profile.experience;
+  return declared ? BY_EXPERIENCE[declared] : 'normal';
+}
 
 /**
  * Small deterministic generator.

@@ -201,6 +201,25 @@ export class PoseEngine {
       return false;
     }
 
+    this.attachTo(video);
+
+    this.running = true;
+    this.setStatus('running');
+    this.pump();
+    return true;
+  }
+
+  /**
+   * Point the engine at a video element and get it playing.
+   *
+   * Shared by start() and reattach() so the playback-retry logic cannot drift
+   * between the two — the first attach and a later re-attach have exactly the
+   * same problem to solve.
+   */
+  private attachTo(video: HTMLVideoElement): void {
+    this.detachPlayListeners?.();
+    this.video = video;
+
     video.srcObject = this.stream;
     video.muted = true;
     video.playsInline = true;
@@ -222,11 +241,25 @@ export class PoseEngine {
       video.removeEventListener('canplay', tryPlay);
     };
     tryPlay();
+  }
 
-    this.running = true;
-    this.setStatus('running');
-    this.pump();
-    return true;
+  /**
+   * Re-point the engine at a fresh <video> element, keeping the stream.
+   *
+   * Exists because a React remount destroys the mounted <video> and builds a
+   * new one. The engine keeps its reference to the OLD, detached node — which
+   * still carries a live MediaStream, so readyState stays >= 2 and landmarks
+   * keep flowing. The athlete sees a pose skeleton drawn over a black
+   * rectangle: their camera "stops working" while detection insists all is
+   * well. That shipped, and it took two attempts to find.
+   *
+   * Deliberately NOT a restart. Calling start() again disposes the engine and
+   * re-requests getUserMedia: a visible black flash and, on some browsers, a
+   * fresh permission prompt in the middle of the countdown.
+   */
+  reattach(video: HTMLVideoElement): void {
+    if (!this.running || !this.stream || this.video === video) return;
+    this.attachTo(video);
   }
 
   /** Schedule the next frame, preferring per-video-frame callbacks. */

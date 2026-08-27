@@ -10,6 +10,8 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { findOrCreateBattle } from '@/lib/firebase/matchmaking';
+import { botLevelFor } from '@/lib/battle/bot';
+import { DEFAULT_DURATION_SECS } from '@/lib/battle/constants';
 import { getExercise, DEFAULT_EXERCISE } from '@/lib/exercise/registry';
 
 function Matchmaking() {
@@ -50,7 +52,14 @@ function Matchmaking() {
 
     startedRef.current = true;
 
-    void findOrCreateBattle(user.uid, exercise.id)
+    // The bot's difficulty is decided here because this is where the profile
+    // lives. `profile` is guaranteed non-null by the wait above.
+    void findOrCreateBattle(
+      user.uid,
+      exercise.id,
+      DEFAULT_DURATION_SECS,
+      botLevelFor(profile),
+    )
       .then(({ id }) => router.replace(`/battle/${id}`))
       .catch(() => {
         setError('Impossible de trouver un adversaire. Vérifie ta connexion.');

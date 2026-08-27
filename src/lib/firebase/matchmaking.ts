@@ -1,5 +1,6 @@
 'use client';
 
+import type { BotLevel } from '@/lib/battle/bot';
 import {
   getDocs,
   limit,
@@ -182,6 +183,18 @@ export async function findOrCreateBattle(
   uid: string,
   exercise = DEFAULT_EXERCISE,
   durationSecs = DEFAULT_DURATION_SECS,
+  /**
+   * Difficulty for the training bot, should one end up seated.
+   *
+   * Passed in rather than derived here: this module has no profile access, and
+   * giving it one would mean an extra Firestore read on the hot path for data
+   * the calling page already holds in useAuth().profile.
+   *
+   * Defaulted so the signature stays backward-compatible — but a hardcoded
+   * 'normal' at the single call site is exactly why 'easy' and 'hard' had been
+   * dead code since bots shipped, so callers should pass botLevelFor(profile).
+   */
+  botLevel: BotLevel = 'normal',
 ): Promise<MatchResult> {
   for (let round = 0; round < MAX_ROUNDS; round++) {
     // ---- phase A: join somebody already waiting ----
@@ -199,7 +212,7 @@ export async function findOrCreateBattle(
       // A real player joining first simply takes the seat and the marker is
       // never acted on.
       myId = await createBattle(uid, exercise, durationSecs, {
-        level: 'normal',
+        level: botLevel,
         seed: Math.floor(Math.random() * 1_000_000),
       });
     } catch {

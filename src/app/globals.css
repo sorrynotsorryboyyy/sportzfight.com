@@ -84,6 +84,25 @@ body {
 /* Big scores and timers must never reflow as digits change. */
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
+/*
+ * Darkens the CENTRE of the countdown so the 3-2-1 digit stays legible over
+ * arbitrary live video, while the frame edges stay light enough for the
+ * athlete to check their own framing — the only reason anyone looks at the
+ * screen during those three seconds.
+ *
+ * A radial vignette rather than a text shadow: a shadow only guarantees
+ * contrast against a background LIGHTER than the digit, and the background
+ * here is whatever happens to be in the room.
+ */
+.countdown-vignette {
+  background: radial-gradient(
+    closest-side at 50% 50%,
+    color-mix(in srgb, var(--color-ink-950) 85%, transparent) 0%,
+    color-mix(in srgb, var(--color-ink-950) 60%, transparent) 45%,
+    transparent 75%
+  );
+}
+
 /* Hairline top-light used on cards to read as a lit sports panel. */
 .panel-sheen {
   background-image: linear-gradient(

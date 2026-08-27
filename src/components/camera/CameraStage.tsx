@@ -26,6 +26,15 @@ export function CameraStage({
   error,
   onRetry,
   variant = 'framed',
+  /**
+   * Which top corner the tracking pill sits in.
+   *
+   * A prop rather than a fixed corner because the full-bleed consumers have
+   * different furniture up there: the battle lobby draws the logo top-left,
+   * where the pill used to overlap it into an unreadable stack. Top-right is
+   * not a global answer either — during the effort the clock owns that corner.
+   */
+  trackingPillPosition = 'top-left',
   className,
   children,
 }: {
@@ -36,6 +45,7 @@ export function CameraStage({
   error: EngineError | null;
   onRetry?: () => void;
   variant?: 'framed' | 'fullbleed';
+  trackingPillPosition?: 'top-left' | 'top-right';
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -75,9 +85,15 @@ export function CameraStage({
 
       <PoseOverlay landmarks={landmarks} valid={good} mirrored />
 
-      {/* Tracking state. Kept top-left in both variants so the athlete always
-          knows where to glance. */}
-      <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-ink-950/75 px-2.5 py-1 backdrop-blur">
+      {/* Tracking state. The athlete's only signal that the body is not being
+          seen AT ALL: the coaching banner below stays silent in that case, and
+          the `good` border does not exist on the full-bleed variant. */}
+      <div
+        className={cn(
+          'absolute top-3 flex items-center gap-1.5 rounded-full bg-ink-950/75 px-2.5 py-1 backdrop-blur',
+          trackingPillPosition === 'top-right' ? 'right-3' : 'left-3',
+        )}
+      >
         <span
           className={cn(
             'size-1.5 rounded-full',

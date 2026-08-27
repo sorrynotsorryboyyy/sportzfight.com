@@ -64,7 +64,11 @@ export function PhoneMockup({ className }: { className?: string }) {
             </g>
           </svg>
 
-          {/* "Détecté" chip, exactly as the real CameraStage shows it. */}
+          {/* "Détecté" chip, exactly as the real CameraStage shows it DURING
+              THE EFFORT, which is the screen this mockup depicts. The lobby
+              moves it to top-right, out of the logo's way — so if the in-play
+              corner ever moves, this has to move with it or the landing page
+              starts advertising a screen that does not exist. */}
           <div className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-full bg-ink-950/80 px-2 py-0.5 backdrop-blur">
             <span className="size-1 rounded-full bg-volt-500" />
             <span className="text-[0.4rem] font-bold uppercase tracking-widest text-ink-300">

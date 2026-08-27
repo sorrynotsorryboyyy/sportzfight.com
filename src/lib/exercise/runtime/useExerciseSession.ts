@@ -130,6 +130,18 @@ export function useExerciseSession({
 
   const onFrame = useCallback(
     (lms: Landmark[] | null, tMs: number) => {
+      // A reference comparison, once per frame. If React rebuilt the <video>
+      // element the engine is still pumping the old, detached node — live
+      // stream, readyState >= 2, landmarks flowing, nothing on screen. This
+      // re-points it at the mounted element without disturbing the stream.
+      //
+      // The structural fix lives in the battle page (one CameraStage for every
+      // phase); this is the guard that makes any FUTURE remount survivable
+      // rather than silently black, which is the worst way for the only screen
+      // that matters to fail.
+      const el = videoRef.current;
+      if (el) engineRef.current?.reattach(el);
+
       setLandmarks(lms);
       const det = detectorRef.current;
       if (!det) return;

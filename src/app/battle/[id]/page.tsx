@@ -30,8 +30,8 @@ import { BOT_UID } from '@/lib/firebase/battles';
 import { isStale, readyOf, slotOf } from '@/lib/battle/machine';
 import { getExercise } from '@/lib/exercise/registry';
 import { useExerciseSession } from '@/lib/exercise/runtime/useExerciseSession';
-import { FORM_MESSAGES } from '@/lib/exercise/types';
-import type { PlayerSlot, ScoreMeta, UserDoc } from '@/lib/battle/types';
+import { FORM_MESSAGES, type FormIssue } from '@/lib/exercise/types';
+import type { BattleDoc, PlayerSlot, ScoreMeta, UserDoc } from '@/lib/battle/types';
 
 interface Profile {
   username: string;
@@ -126,6 +126,182 @@ function DeadEndScreen({
         </Link>
       </div>
     </main>
+  );
+}
+
+/**
+ * The effort screen's furniture: your score up top, the opponent at the foot.
+ *
+ * Extracted from BattlePage so the lobby and the effort can share ONE
+ * <CameraStage>. They used to be two separate returns rendering identical
+ * camera markup, and crossing waiting -> countdown therefore destroyed the
+ * <video> element and built a new one — see the comment on the player return.
+ *
+ * Stateless on purpose: a component that held state here would remount with
+ * the phase change and lose it, which is the class of bug this restructure
+ * exists to remove.
+ */
+function InPlayOverlay({
+  meName,
+  myScore,
+  view,
+  repNote,
+  oppName,
+  oppAvatar,
+  oppScore,
+  isBotBattle,
+  opponentConnected,
+  waitingForOpponent,
+}: {
+  meName: string;
+  myScore: number;
+  view: ReturnType<typeof useBattleClock>;
+  repNote: FormIssue | undefined;
+  oppName: string;
+  oppAvatar: string | null;
+  oppScore: number;
+  isBotBattle: boolean;
+  opponentConnected: boolean;
+  waitingForOpponent: boolean;
+}) {
+  return (
+    <>
+      {/* --- top: you, and the clock --- */}
+      <div className="flex items-start justify-between gap-3 bg-gradient-to-b from-ink-950/85 to-transparent p-4 pb-12">
+        <div className="min-w-0">
+          <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
+            {meName}
+          </p>
+          <span className="tnum block text-7xl font-black leading-none text-volt-500 sm:text-8xl">
+            {myScore}
+          </span>
+          <p className="mt-0.5 text-3xs font-bold uppercase tracking-widest text-ink-500">
+            pompes
+          </p>
+        </div>
+
+        {/* The clock sits up here rather than centred: dead centre is
+            exactly where the athlete's torso is in frame. */}
+        <div className="shrink-0 scale-75 origin-top-right sm:scale-90">
+          <BattleTimer
+            secondsLeft={view.secondsLeft}
+            progress={view.progress}
+            approximate={view.clockDegraded}
+          />
+        </div>
+      </div>
+
+      {/* --- bottom: form feedback, then the opponent --- */}
+      <div className="flex flex-col gap-2 bg-gradient-to-t from-ink-950/85 to-transparent p-4 pt-12">
+        {repNote && (
+          <span className="self-center rounded-full bg-gold/95 px-3 py-1 text-xs font-bold text-ink-950">
+            {FORM_MESSAGES[repNote]}
+          </span>
+        )}
+
+        <OpponentBar
+          name={oppName}
+          isBot={isBotBattle}
+          avatar={oppAvatar}
+          score={oppScore}
+          connected={opponentConnected}
+          waiting={waitingForOpponent}
+        />
+      </div>
+    </>
+  );
+}
+
+/** The lobby's furniture: who you are, and the ready control. */
+function LobbyOverlay({
+  meName,
+  myReady,
+  cameraReady,
+  battle,
+  slot,
+  setupHint,
+  oppName,
+  oppAvatar,
+  opponentConnected,
+}: {
+  meName: string;
+  myReady: boolean;
+  cameraReady: boolean;
+  battle: BattleDoc & { id: string };
+  slot: PlayerSlot | null;
+  setupHint: string;
+  oppName: string;
+  oppAvatar: string | null;
+  opponentConnected: boolean;
+}) {
+  return (
+    <>
+      {/* top: you only. Same hierarchy as the in-play screen, so the two
+          phases read as one continuous experience. */}
+      <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-12">
+        {/* Just the logo: the player picked the mode a moment ago, so
+            repeating it here only competes with the camera. */}
+        <div className="pointer-events-auto mb-4">
+          <Link href="/">
+            <Logo className="text-lg" />
+          </Link>
+        </div>
+
+        <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
+          {meName}
+        </p>
+        <p className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-ink-100">
+          {myReady ? 'Prêt' : 'En position'}
+        </p>
+      </div>
+
+      {/* bottom: setup hint + the ready control, in the thumb zone */}
+      <div className="bg-gradient-to-t from-ink-950/95 to-transparent p-4 pt-12">
+        {!battle.player2 ? (
+          <div className="pointer-events-auto flex flex-col gap-3">
+            <p className="text-center text-sm text-ink-300">
+              <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-volt-500 align-middle" />
+              Recherche d’un adversaire…
+            </p>
+            <p className="text-center text-xs text-ink-500">{setupHint}</p>
+            <Button variant="ghost" onClick={() => void cancelBattle(battle.id)}>
+              Annuler
+            </Button>
+          </div>
+        ) : (
+          <div className="pointer-events-auto flex flex-col gap-3">
+            {/* No score yet, so the bar shows readiness instead. Without it
+                the wait is opaque: you cannot tell whether the opponent is
+                still there or has walked away. */}
+            <OpponentBar
+              name={oppName}
+              avatar={oppAvatar}
+              connected={opponentConnected}
+              ready={slot === 1 ? battle.player2Ready : battle.player1Ready}
+            />
+            <p className="text-center text-xs leading-relaxed text-ink-400">
+              {cameraReady
+                ? setupHint
+                : 'La caméra doit être active pour lancer un battle.'}
+            </p>
+            <Button
+              size="xl"
+              variant={myReady ? 'secondary' : 'primary'}
+              disabled={!cameraReady && !myReady}
+              onClick={() => slot && void setReady(battle.id, slot, !myReady)}
+              className={!myReady && cameraReady ? 'animate-pulse-ring' : undefined}
+            >
+              {myReady ? 'ANNULER' : cameraReady ? 'JE SUIS PRÊT' : 'CAMÉRA REQUISE'}
+            </Button>
+            {myReady && (
+              <p className="text-center text-sm text-ink-400">
+                En attente de ton adversaire…
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -284,123 +460,40 @@ export default function BattlePage({
   const inPlay =
     view.phase === 'countdown' || view.phase === 'active' || view.phase === 'ending';
 
-  if (inPlay) {
-    const myStored = slot === 1 ? battle.player1Score : battle.player2Score;
-    const myScore = slot ? Math.max(session.count, myStored) : 0;
-    const oppScore =
-      slot === 2 ? battle.player1Score : battle.player2Score;
-    const repNote = session.result?.repNotes?.[0];
-
-    if (isSpectator) {
-      return (
-        <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
-          {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
-          <div className="flex items-stretch gap-3">
-            <PlayerCard
-              name={p1Name}
-              score={battle.player1Score}
-              isSelf={false}
-              slot={1}
-              compact
-              connected={!isStale(battle, 1, serverNow())}
-            />
-            <PlayerCard
-              name={p2Name}
-              score={battle.player2Score}
-              isSelf={false}
-              slot={2}
-              compact
-              connected={!isStale(battle, 2, serverNow())}
-            />
-          </div>
-          <BattleTimer
-            secondsLeft={view.secondsLeft}
-            progress={view.progress}
-            approximate={view.clockDegraded}
-          />
-          <Card className="text-center text-sm text-ink-400">
-            Tu regardes ce battle en spectateur.
-          </Card>
-        </main>
-      );
-    }
-
-    // The camera fills the screen: during the effort it is the only thing the
-    // athlete looks at. Everything else floats over it — you on top, the
-    // opponent reduced to a bar at the bottom.
-    return (
-      <main className="relative h-dvh overflow-hidden">
-        {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
-
-        <CameraStage
-          variant="fullbleed"
-          videoRef={session.videoRef}
-          landmarks={session.landmarks}
-          result={session.result}
-          status={session.engineStatus}
-          error={session.error}
-          onRetry={() => void startCamera()}
-        />
-
-        {/* pointer-events-none throughout: nothing here is interactive, and
-            the pose skeleton underneath must stay visible. */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-          {/* --- top: you, and the clock --- */}
-          <div className="flex items-start justify-between gap-3 bg-gradient-to-b from-ink-950/85 to-transparent p-4 pb-12">
-            <div className="min-w-0">
-              <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
-                {meName}
-              </p>
-              <span className="tnum block text-7xl font-black leading-none text-volt-500 sm:text-8xl">
-                {myScore}
-              </span>
-              <p className="mt-0.5 text-3xs font-bold uppercase tracking-widest text-ink-500">
-                pompes
-              </p>
-            </div>
-
-            {/* The clock sits up here rather than centred: dead centre is
-                exactly where the athlete's torso is in frame. */}
-            <div className="shrink-0 scale-75 origin-top-right sm:scale-90">
-              <BattleTimer
-                secondsLeft={view.secondsLeft}
-                progress={view.progress}
-                approximate={view.clockDegraded}
-              />
-            </div>
-          </div>
-
-          {/* --- bottom: form feedback, then the opponent --- */}
-          <div className="flex flex-col gap-2 bg-gradient-to-t from-ink-950/85 to-transparent p-4 pt-12">
-            {repNote && (
-              <span className="self-center rounded-full bg-gold/95 px-3 py-1 text-xs font-bold text-ink-950">
-                {FORM_MESSAGES[repNote]}
-              </span>
-            )}
-
-            <OpponentBar
-              name={oppName}
-              isBot={isBotBattle}
-              avatar={oppAvatar}
-              score={oppScore}
-              connected={opponentConnected}
-              waiting={!battle.player2}
-            />
-          </div>
-        </div>
-
-        {view.phase === 'ending' && (
-          <div className="absolute inset-x-0 bottom-0 z-40 bg-ink-950/95 p-4 text-center text-sm text-ink-300">
-            Temps écoulé — calcul du résultat…
-          </div>
-        )}
-      </main>
-    );
-  }
-
-  // ---------- lobby: full-bleed camera with the info floating over it ----------
+  // Spectators never get a camera, so they are answered before the shared
+  // full-bleed stage below — two card layouts, one per phase.
   if (isSpectator) {
-    return (
+    return inPlay ? (
+      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-4">
+        {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
+        <div className="flex items-stretch gap-3">
+          <PlayerCard
+            name={p1Name}
+            score={battle.player1Score}
+            isSelf={false}
+            slot={1}
+            compact
+            connected={!isStale(battle, 1, serverNow())}
+          />
+          <PlayerCard
+            name={p2Name}
+            score={battle.player2Score}
+            isSelf={false}
+            slot={2}
+            compact
+            connected={!isStale(battle, 2, serverNow())}
+          />
+        </div>
+        <BattleTimer
+          secondsLeft={view.secondsLeft}
+          progress={view.progress}
+          approximate={view.clockDegraded}
+        />
+        <Card className="text-center text-sm text-ink-400">
+          Tu regardes ce battle en spectateur.
+        </Card>
+      </main>
+    ) : (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
         {/* Linked, unlike before: this was the only element on a page with no
             other navigation, so a spectator had literally no way out. */}
@@ -432,10 +525,35 @@ export default function BattlePage({
     );
   }
 
+  const myStored = slot === 1 ? battle.player1Score : battle.player2Score;
+  const myScore = slot ? Math.max(session.count, myStored) : 0;
+  const oppScore = slot === 2 ? battle.player1Score : battle.player2Score;
+  const repNote = session.result?.repNotes?.[0];
+
+  // ---------- the player's screen, lobby and effort alike ----------
+  //
+  // ONE <main>, ONE <CameraStage>, for every phase a player can see.
+  //
+  // This used to be two mutually exclusive returns that happened to render
+  // identical camera markup. React reconciles children by position, and the
+  // in-play branch put <Countdown/> at index 0 — displacing the camera — so
+  // crossing waiting -> countdown DESTROYED the <video> node and built a new
+  // one. videoRef repointed to the new element, nothing re-assigned srcObject,
+  // and PoseEngine kept reading the old detached node, which still had a live
+  // MediaStream. Landmarks kept flowing, so the athlete spent the whole battle
+  // watching a pose skeleton drawn over a black rectangle.
+  //
+  // Restarting the camera on the phase change is NOT the alternative: start()
+  // disposes the engine and re-requests getUserMedia, which flashes black and
+  // re-prompts on some browsers, mid-countdown.
   return (
     <main className="relative h-dvh overflow-hidden">
       <CameraStage
         variant="fullbleed"
+        // Top-left belongs to the score during the effort and to the logo in
+        // the lobby, where the two used to overlap into an unreadable stack.
+        // Neither corner is free in both phases, so the pill follows the phase.
+        trackingPillPosition={inPlay ? 'top-left' : 'top-right'}
         videoRef={session.videoRef}
         landmarks={session.landmarks}
         result={session.result}
@@ -444,79 +562,48 @@ export default function BattlePage({
         onRetry={() => void startCamera()}
       />
 
-      {/* Everything below floats over the video. pointer-events-none on the
-          scrims so only the actual controls are clickable. */}
+      {/* AFTER the camera, never before it. Countdown is fixed inset-0 z-50, so
+          its stacking does not depend on DOM order — but its position in the
+          child list is exactly what displaced the camera and blacked it out. */}
+      {view.phase === 'countdown' && <Countdown digit={view.countdownDigit} />}
+
+      {/* pointer-events-none throughout: nothing here is interactive except
+          the controls that opt back in, and the pose skeleton underneath must
+          stay visible. */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-        {/* top: you only. Same hierarchy as the in-play screen, so the two
-            phases read as one continuous experience. */}
-        <div className="bg-gradient-to-b from-ink-950/90 to-transparent p-4 pb-12">
-          {/* Just the logo: the player picked the mode a moment ago, so
-              repeating it here only competes with the camera. */}
-          <div className="pointer-events-auto mb-4">
-            <Link href="/">
-              <Logo className="text-lg" />
-            </Link>
-          </div>
-
-          <p className="truncate text-3xs font-bold uppercase tracking-widest text-volt-500">
-            {meName}
-          </p>
-          <p className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-ink-100">
-            {myReady ? 'Prêt' : 'En position'}
-          </p>
-        </div>
-
-        {/* bottom: setup hint + the ready control, in the thumb zone */}
-        <div className="bg-gradient-to-t from-ink-950/95 to-transparent p-4 pt-12">
-          {!battle.player2 ? (
-            <div className="pointer-events-auto flex flex-col gap-3">
-              <p className="text-center text-sm text-ink-300">
-                <span className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-volt-500 align-middle" />
-                Recherche d’un adversaire…
-              </p>
-              <p className="text-center text-xs text-ink-500">
-                {exercise.setupHint}
-              </p>
-              <Button variant="ghost" onClick={() => void cancelBattle(battle.id)}>
-                Annuler
-              </Button>
-            </div>
-          ) : (
-            <div className="pointer-events-auto flex flex-col gap-3">
-              {/* No score yet, so the bar shows readiness instead. Without it
-                  the wait is opaque: you cannot tell whether the opponent is
-                  still there or has walked away. */}
-              <OpponentBar
-                name={oppName}
-                avatar={oppAvatar}
-                connected={opponentConnected}
-                ready={slot === 1 ? battle.player2Ready : battle.player1Ready}
-              />
-              <p className="text-center text-xs leading-relaxed text-ink-400">
-                {cameraReady ? exercise.setupHint : 'La caméra doit être active pour lancer un battle.'}
-              </p>
-              <Button
-                size="xl"
-                variant={myReady ? 'secondary' : 'primary'}
-                disabled={!cameraReady && !myReady}
-                onClick={() => slot && void setReady(battle.id, slot, !myReady)}
-                className={!myReady && cameraReady ? 'animate-pulse-ring' : undefined}
-              >
-                {myReady
-                  ? 'ANNULER'
-                  : cameraReady
-                    ? 'JE SUIS PRÊT'
-                    : 'CAMÉRA REQUISE'}
-              </Button>
-              {myReady && (
-                <p className="text-center text-sm text-ink-400">
-                  En attente de ton adversaire…
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+        {inPlay ? (
+          <InPlayOverlay
+            meName={meName}
+            myScore={myScore}
+            view={view}
+            repNote={repNote}
+            oppName={oppName}
+            oppAvatar={oppAvatar}
+            oppScore={oppScore}
+            isBotBattle={isBotBattle}
+            opponentConnected={opponentConnected}
+            waitingForOpponent={!battle.player2}
+          />
+        ) : (
+          <LobbyOverlay
+            meName={meName}
+            myReady={myReady}
+            cameraReady={cameraReady}
+            battle={battle}
+            slot={slot}
+            setupHint={exercise.setupHint}
+            oppName={oppName}
+            oppAvatar={oppAvatar}
+            opponentConnected={opponentConnected}
+          />
+        )}
       </div>
+
+      {view.phase === 'ending' && (
+        <div className="absolute inset-x-0 bottom-0 z-40 bg-ink-950/95 p-4 text-center text-sm text-ink-300">
+          Temps écoulé — calcul du résultat…
+        </div>
+      )}
     </main>
   );
 }

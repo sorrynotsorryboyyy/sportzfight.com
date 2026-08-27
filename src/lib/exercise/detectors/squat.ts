@@ -28,14 +28,37 @@ import {
  */
 export const SQUAT_CONFIG = {
   // --- gate 1: four-threshold hysteresis on the knee angle (degrees) ---
-  // Standing measures 168-178; a parallel squat bottoms around 80-95.
-  UP_ENTER: 160,   // legs considered extended
-  UP_EXIT: 150,    // must drop below this to start descending
-  DOWN_ENTER: 100, // roughly thighs-parallel: real depth
-  DOWN_EXIT: 115,  // must rise above this to start ascending
+  // Standing measures 168-178. The standard is "cuisses parallèles au sol",
+  // which puts the knee at 90-95; DOWN_ENTER sits at the loose end of that so
+  // a genuine parallel squat is never rejected over one noisy frame.
+  UP_ENTER: 160,  // legs considered extended
+  UP_EXIT: 150,   // must drop below this to start descending
+  DOWN_ENTER: 95, // thighs parallel: real depth
+  DOWN_EXIT: 112, // must rise above this to start ascending
 
   // --- gate 2: range of motion within one rep ---
-  MIN_ROM_DEG: 50,
+  //
+  // This shipped at 50, which admitted any bottom around 126 — a HALF SQUAT —
+  // while DOWN_ENTER claimed to demand 100. Two gates disagreeing by 26
+  // degrees, with the loose one binding, and no test anywhere in the gap
+  // between them. Pushup gets the agreement for free because it resets its
+  // envelope on the way down, so its ROM gate coincides with its depth gate by
+  // construction; squat has to be calibrated to it by hand.
+  //
+  // The relationship between the bottom angle and the ROM actually recorded is
+  // NOT simply (standing - bottom): the envelope is reseeded on every settled
+  // standing frame, and the smoothing eats part of the descent. Measured
+  // against the synthetic harness, which reproduces the smoothing exactly:
+  //
+  //     bottom  85 -> ROM 75.6      bottom 105 -> ROM 55.6
+  //     bottom  90 -> ROM 70.6      bottom 112 -> ROM 48.6
+  //     bottom  92 -> ROM 68.6      bottom 120 -> ROM 40.6
+  //     bottom  95 -> ROM 65.6      bottom 126 -> ROM 34.6
+  //
+  // 66 therefore admits a bottom of ~93.5, landing alongside DOWN_ENTER, and
+  // rejects every half squat by a wide margin. Deriving it arithmetically
+  // instead of measuring it is what produced the original 26-degree gap.
+  MIN_ROM_DEG: 66,
 
   // --- gate 3: the body must be upright ---
   // Shoulder->hip line versus VERTICAL. A squat leans forward (hips back,
@@ -44,14 +67,34 @@ export const SQUAT_CONFIG = {
   MAX_TORSO_LEAN: 50,
 
   // --- gate 4: the hips must actually travel down ---
+  //
   // Fraction of leg length (hip->ankle). This is the gate that kills the
   // seated fake: bending your knees in a chair swings the knee angle without
   // the hips descending at all.
-  MIN_HIP_DROP: 0.10,
+  //
+  // Measured against the harness, peak drop by bottom angle:
+  //
+  //     bottom 126 -> 0.108   (the half squat the old 0.10 waved through)
+  //     bottom 112 -> 0.169
+  //     bottom 105 -> 0.206
+  //     bottom  95 -> 0.294
+  //     bottom  92 -> 0.326   <- the shallowest rep that reaches depth
+  //     bottom  90 -> 0.349
+  //
+  // 0.26 clears a parallel squat comfortably while sitting far above the half
+  // squat, leaving headroom for the perspective foreshortening a real camera
+  // adds. It stays a BACKSTOP against the seated fake: gates 2 and 5 do the
+  // depth work.
+  MIN_HIP_DROP: 0.26,
 
   // --- timing ---
   MIN_REP_MS: 700,    // a full down+up faster than this is not a squat
   MAX_REP_MS: 12_000, // longer than this: abandon the rep
+  // Non-blocking on purpose, and matched to pushup.ts. Depth is now arbitrated
+  // by the explicit repMinAngle check in tryCredit, which reads the recorded
+  // minimum rather than a state transition — so a bounce that failed to dwell
+  // no longer has a way to sneak past on smoothing lag. What is left here is
+  // coaching, not arbitration.
   MIN_DOWN_MS: 120,   // dwell at the bottom, kills the bounce
   DEBOUNCE_MS: 350,
 
@@ -323,8 +366,23 @@ export class SquatDetector implements ExerciseDetector {
           this.lastUprightMs = tMs;
           this.resetRepRange(knee, hipMid.y);
         } else if (knee <= SQUAT_CONFIG.DOWN_ENTER) {
-          this.phase = 'down'; // sank back down
+          // Sank back down. This begins a NEW bottom that has to qualify on
+          // its own merits.
+          //
+          // It used to be a free ride: ONE shallow touch of DOWN_ENTER recorded
+          // a qualifying repMinAngle, and every later bob between DOWN_EXIT and
+          // UP_ENTER re-entered `down` and fired tryCredit again on the way up
+          // — with descentStartMs never reseated, so cycleMs only grew and
+          // MIN_REP_MS stopped resisting after the first one.
+          //
+          // Reseating the clock and the envelope closes it, and two independent
+          // gates now catch the second bob: ROM is measured from the bottom
+          // rather than from standing, and the hip top is re-seeded at the
+          // current hip so the drop measures THIS dip's travel.
+          this.phase = 'down';
           this.downEnteredMs = tMs;
+          this.descentStartMs = tMs;
+          this.resetRepRange(knee, hipMid.y);
         } else if (tMs - this.descentStartMs > SQUAT_CONFIG.MAX_REP_MS) {
           this.phase = 'idle';
         }
@@ -382,6 +440,28 @@ export class SquatDetector implements ExerciseDetector {
     if (tMs - this.lastRepMs < SQUAT_CONFIG.DEBOUNCE_MS) return;
     if (cycleMs < SQUAT_CONFIG.MIN_REP_MS) {
       repNotes.push('too_fast');
+      return;
+    }
+    /*
+     * Depth, read from the RECORDED MINIMUM rather than inferred from having
+     * passed through the `down` state.
+     *
+     * Today the two agree: reaching `ascending` means a sample crossed
+     * DOWN_ENTER, and the smoothing only ever reads SHALLOWER than the body
+     * (Median3 -> Ema lags, so a fast dip understates its own depth — measured,
+     * not assumed). So this gate rejects nothing the state machine would have
+     * allowed.
+     *
+     * It stays because it states the rule directly instead of inferring it
+     * from a path through the states. Every escape found in this detector so
+     * far — the 26-degree ROM gap, the bobbing re-entry — came from depth being
+     * enforced as a side effect of something else. repMinAngle is the deepest
+     * point the rep actually reached, which is what "cuisses parallèles" is a
+     * claim about, and a future change to the phase transitions cannot quietly
+     * weaken it.
+     */
+    if (this.repMinAngle > SQUAT_CONFIG.DOWN_ENTER) {
+      repNotes.push('partial_rep');
       return;
     }
     if (rom < SQUAT_CONFIG.MIN_ROM_DEG) {
