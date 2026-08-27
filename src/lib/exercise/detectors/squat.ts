@@ -3,6 +3,7 @@ import {
   Median3,
   allVisible,
   angleDeg,
+  angleDeg3,
   inclinationDeg,
   meanVisibility,
   midpoint,
@@ -99,6 +100,30 @@ export const SQUAT_CONFIG = {
   DEBOUNCE_MS: 350,
 
   // --- visibility ---
+  /**
+   * How much the camera may exaggerate the legs before the framing is called
+   * bad, as a ratio of what it shows to what the body actually is.
+   *
+   * A phone below hip height looking up foreshortens unevenly: the legs, low
+   * in the frame and nearer the lens, are stretched relative to the torso.
+   * Comparing the leg/torso ratio the IMAGE shows against the same ratio in
+   * METRIC space measures exactly that, and it needs no sensor and no
+   * permission prompt. Measured against the harness at 2.5 m:
+   *
+   *     camera at hip height (0.9 m) -> 1.00
+   *     camera at 0.7 m              -> 1.05
+   *     camera at 0.5 m              -> 1.09
+   *     camera at 0.3 m              -> 1.14
+   *     phone flat on the floor      -> 1.19
+   *
+   * 1.10 sits above ordinary imperfection and below the placement that
+   * motivated this. Note the DEPTH VERDICT no longer depends on any of it —
+   * that is measured in 3D now — so this only advises a better setup.
+   */
+  MAX_FRAMING_STRETCH: 1.1,
+  /** Sustained frames of bad framing before saying anything. */
+  BAD_FRAMING_FRAMES: 12,
+
   MIN_VISIBILITY: 0.6,
   MIN_MEAN_VISIBILITY: 0.7,
   GRACE_FRAMES: 8,    // ~250ms at 30fps before giving up on a tracked body
@@ -134,11 +159,62 @@ function bilateralAngle(
   return Number.NaN;
 }
 
+/**
+ * Average a 3D joint angle across both sides.
+ *
+ * No visibility filter, unlike the 2D sibling: the caller has already cleared
+ * the visibility gates on the image-space set, and averaging the two sides is
+ * what tolerates one leg being hidden from the camera.
+ */
+function bilateralAngle3(
+  lms: Landmark[],
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): number {
+  const l = angleDeg3(lms[left[0]], lms[left[1]], lms[left[2]]);
+  const r = angleDeg3(lms[right[0]], lms[right[1]], lms[right[2]]);
+  if (Number.isFinite(l) && Number.isFinite(r)) return (l + r) / 2;
+  if (Number.isFinite(l)) return l;
+  if (Number.isFinite(r)) return r;
+  return Number.NaN;
+}
+
+/**
+ * How much the camera exaggerates the legs relative to the torso.
+ *
+ * 1 means the image agrees with the body. Above 1 means the legs are being
+ * stretched, which is what a camera below hip height does: the lower half of
+ * the frame is nearer the lens and gets magnified, so a descent looks deeper
+ * than it was. Below 1 means the opposite, a camera looking down.
+ *
+ * Comparing a RATIO rather than a length is what makes this independent of how
+ * far away the athlete stands.
+ */
+function framingStretchOf(image: Landmark[], world: Landmark[]): number {
+  const span = (lms: Landmark[], a: number, b: number) => {
+    const top = midpoint(lms[a], lms[a + 1]);
+    const bottom = midpoint(lms[b], lms[b + 1]);
+    return Math.abs(bottom.y - top.y);
+  };
+
+  // Hips->ankles against shoulders->hips, in each space.
+  const imgLeg = span(image, LM.LEFT_HIP, LM.LEFT_ANKLE);
+  const imgTorso = span(image, LM.LEFT_SHOULDER, LM.LEFT_HIP);
+  const wLeg = span(world, LM.LEFT_HIP, LM.LEFT_ANKLE);
+  const wTorso = span(world, LM.LEFT_SHOULDER, LM.LEFT_HIP);
+
+  if (imgTorso < 1e-4 || wTorso < 1e-4 || wLeg < 1e-4) return Number.NaN;
+  const imageRatio = imgLeg / imgTorso;
+  const bodyRatio = wLeg / wTorso;
+  if (bodyRatio < 1e-4) return Number.NaN;
+  return imageRatio / bodyRatio;
+}
+
 export class SquatDetector implements ExerciseDetector {
   readonly id = 'squats';
   readonly label = 'Squats';
   readonly setupHint =
-    'Place ton téléphone de côté, à ~2 m, de la tête aux pieds.';
+    'Caméra de côté, à hauteur de hanche, à ~2 m. Pas au sol : filmé d’en bas, la profondeur est faussée.';
   readonly usesCamera = true;
 
   private kneeMed = new Median3();
@@ -156,6 +232,10 @@ export class SquatDetector implements ExerciseDetector {
   /** Lowest hip position (largest y) seen since the rep began. */
   private repBottomHipY = Number.NEGATIVE_INFINITY;
   private legLength = Number.NaN;
+  /** Consecutive frames where the projection disagreed with the 3D truth. */
+  private badFramingFrames = 0;
+  /** Last measured framing stretch, surfaced to /admin for tuning. */
+  private framingStretch = Number.NaN;
 
   private descentStartMs = 0;
   private downEnteredMs = 0;
@@ -229,7 +309,11 @@ export class SquatDetector implements ExerciseDetector {
     return r;
   }
 
-  process(landmarks: Landmark[] | null, tMs: number): DetectorResult {
+  process(
+    landmarks: Landmark[] | null,
+    tMs: number,
+    world?: Landmark[] | null,
+  ): DetectorResult {
     // ---- no body at all ----
     if (!landmarks || landmarks.length < 29) {
       this.lowVisFrames++;
@@ -259,14 +343,30 @@ export class SquatDetector implements ExerciseDetector {
     this.lowVisFrames = 0;
 
     // ---- signals ----
+    //
+    // Depth is judged in METRIC BODY SPACE when the runtime offers it, and
+    // falls back to the projection only when it does not.
+    //
+    // The projection is not a second opinion, it is a distorted one: filming
+    // from below foreshortens the descent, so a half squat projects the knee
+    // angle of a deep one and scores. The body-frame estimate does not care
+    // where the phone is lying, which is the whole point.
+    const usable3d = !!world && world.length >= 29;
+
     const knee = this.kneeEma.push(
       this.kneeMed.push(
-        bilateralAngle(
-          landmarks,
-          [LM.LEFT_HIP, LM.LEFT_KNEE, LM.LEFT_ANKLE],
-          [LM.RIGHT_HIP, LM.RIGHT_KNEE, LM.RIGHT_ANKLE],
-          SQUAT_CONFIG.MIN_VISIBILITY,
-        ),
+        usable3d
+          ? bilateralAngle3(
+              world,
+              [LM.LEFT_HIP, LM.LEFT_KNEE, LM.LEFT_ANKLE],
+              [LM.RIGHT_HIP, LM.RIGHT_KNEE, LM.RIGHT_ANKLE],
+            )
+          : bilateralAngle(
+              landmarks,
+              [LM.LEFT_HIP, LM.LEFT_KNEE, LM.LEFT_ANKLE],
+              [LM.RIGHT_HIP, LM.RIGHT_KNEE, LM.RIGHT_ANKLE],
+              SQUAT_CONFIG.MIN_VISIBILITY,
+            ),
       ),
     );
 
@@ -281,10 +381,26 @@ export class SquatDetector implements ExerciseDetector {
     // near 90, so the lean away from vertical is its complement.
     const lean = this.leanEma.push(90 - inclinationDeg(shoulderMid, hipMid));
 
+    // How much the camera is stretching the legs, measured by comparing the
+    // proportions it SHOWS against the proportions the body actually has.
+    // Only computable while both views exist.
+    this.framingStretch = usable3d
+      ? framingStretchOf(landmarks, world)
+      : Number.NaN;
+
     // Leg length normalises the hip drop, so the gate holds whatever the
     // athlete's distance from the camera.
+    //
+    // Only ever measured while STANDING. It used to be rewritten on every
+    // frame, mid-descent included, where the hip has already travelled toward
+    // the ankle and the "leg" is a partially collapsed one — shrinking the
+    // divisor exactly while the numerator grew, which quietly inflated the
+    // measured drop on every rep.
     const legLen = Math.abs(ankleMid.y - hipMid.y);
-    if (Number.isFinite(legLen) && legLen > 0.05) this.legLength = legLen;
+    const atFullHeight = !Number.isFinite(knee) || knee >= SQUAT_CONFIG.UP_ENTER;
+    if (atFullHeight && Number.isFinite(legLen) && legLen > 0.05) {
+      this.legLength = legLen;
+    }
 
     if (!Number.isFinite(knee)) {
       return this.result(this.phase, ['low_visibility'], meanVis, 0);
@@ -298,6 +414,20 @@ export class SquatDetector implements ExerciseDetector {
       !Number.isFinite(lean) || Math.abs(lean) <= SQUAT_CONFIG.MAX_TORSO_LEAN;
     if (!upright) posture.push('not_horizontal');
 
+    // Bad framing is ADVICE, never a veto: reported to the athlete but kept
+    // deliberately out of `formValid`, so a false positive costs a sentence on
+    // screen rather than a battle. Depth is already honest in 3D; this only
+    // warns that the footage is hard to judge and the phone would be better
+    // placed higher.
+    const badFraming =
+      Number.isFinite(this.framingStretch) &&
+      this.framingStretch > SQUAT_CONFIG.MAX_FRAMING_STRETCH;
+    this.badFramingFrames = badFraming ? this.badFramingFrames + 1 : 0;
+    if (this.badFramingFrames >= SQUAT_CONFIG.BAD_FRAMING_FRAMES) {
+      posture.push('camera_too_low');
+    }
+
+    // Framing is NOT part of this — see where camera_too_low is pushed.
     const formValid = upright;
 
     // ---- track the rep envelope ----
@@ -411,6 +541,8 @@ export class SquatDetector implements ExerciseDetector {
       hipDeviation: this.hipDrop(),
       meanVisibility: meanVis,
       rangeOfMotion: this.repMaxAngle - this.repMinAngle,
+      framingStretch: this.framingStretch,
+      usingWorldLandmarks: usable3d,
     });
   }
 

@@ -16,7 +16,8 @@ export type FormIssue =
   | 'hips_piked'
   | 'hips_sagging'
   | 'partial_rep'
-  | 'too_fast';
+  | 'too_fast'
+  | 'camera_too_low';
 
 export interface DetectorResult {
   /** Total valid reps this session. Monotonically non-decreasing. */
@@ -53,6 +54,15 @@ export interface DetectorResult {
     hipDeviation: number;
     meanVisibility: number;
     rangeOfMotion: number;
+    /**
+     * How much the camera exaggerates the legs, as a ratio of the proportions
+     * it shows to the proportions the body has. 1 is honest; above 1 means a
+     * camera below hip height stretching the descent in the athlete's favour.
+     * NaN when the runtime gave no world landmarks to compare against.
+     */
+    framingStretch?: number;
+    /** False when the detector had to fall back to the 2D projection. */
+    usingWorldLandmarks?: boolean;
   };
 }
 
@@ -72,8 +82,20 @@ export interface ExerciseDetector {
   readonly usesCamera: boolean;
 
   reset(): void;
-  /** Feed one frame. `landmarks` is null when no body was detected. */
-  process(landmarks: Landmark[] | null, tMs: number): DetectorResult;
+  /**
+   * Feed one frame. `landmarks` is null when no body was detected.
+   *
+   * `world` is the same pose in metric body-space (metres, origin at the hip
+   * midpoint), or null when the runtime did not provide it. Optional because
+   * only detectors whose verdict can be distorted by camera placement need it
+   * — the manual counter ignores both, and pushups are measured side-on where
+   * the projection is already faithful.
+   */
+  process(
+    landmarks: Landmark[] | null,
+    tMs: number,
+    world?: Landmark[] | null,
+  ): DetectorResult;
   /** Manual rep entry (tap fallback, or a correction). */
   tap?(delta: number): void;
 }
@@ -86,6 +108,7 @@ export const FORM_MESSAGES: Record<FormIssue, string> = {
   hips_sagging: 'Remonte les hanches — gaine-toi',
   partial_rep: 'Descends plus bas',
   too_fast: 'Trop rapide — contrôle le mouvement',
+  camera_too_low: 'Relève ta caméra à hauteur de hanche',
 };
 
 /** BlazePose 33-point topology indices used by the detectors. */

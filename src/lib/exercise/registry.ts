@@ -45,7 +45,7 @@ export const EXERCISES: Record<string, ExerciseSpec> = {
     tagline: 'Un max de squats en 60 secondes',
     emoji: '🦵',
     setupHint:
-      'Place la caméra de côté, à ~2 m, de la tête aux pieds.',
+      'Caméra de côté, à hauteur de hanche, à ~2 m. Pas au sol : filmé d’en bas, la profondeur est faussée.',
     create: createSquatDetector,
     createManual: () => createManualDetector('squats', 'Squats'),
     available: true,

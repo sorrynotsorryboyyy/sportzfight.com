@@ -3,9 +3,14 @@ import type { Landmark } from './types';
 /**
  * Interior angle ABC in degrees, using the 2D projection.
  *
- * We deliberately ignore z: MediaPipe's depth estimate from a single camera is
- * far noisier than x/y, and for a body viewed side-on (the natural pushup
- * framing) the 2D projection already carries the joint angle faithfully.
+ * This ignores z on purpose, and the reason is specific: for IMAGE-SPACE
+ * landmarks, MediaPipe's monocular depth estimate is far noisier than x/y, and
+ * for a body viewed side-on (the natural pushup framing) the projection
+ * already carries the joint angle faithfully.
+ *
+ * That reasoning does NOT extend to every exercise — see angleDeg3 below, and
+ * the squat detector, where relying on the projection let camera placement
+ * decide whether a rep counted.
  */
 export function angleDeg(a: Landmark, b: Landmark, c: Landmark): number {
   const abx = a.x - b.x;
@@ -21,6 +26,41 @@ export function angleDeg(a: Landmark, b: Landmark, c: Landmark): number {
   // Clamp guards against floating-point drift pushing |cos| just past 1.
   const cos = Math.min(1, Math.max(-1, dot / (magA * magC)));
   return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/**
+ * Interior angle ABC in degrees, in full 3D.
+ *
+ * The sibling above is the right tool for image-space landmarks. This one is
+ * for METRIC BODY-SPACE landmarks (MediaPipe's worldLandmarks), where z is a
+ * real coordinate rather than the noisy monocular depth guess the 2D function
+ * was written to avoid.
+ *
+ * It exists because the projected angle is a lie about the joint whenever the
+ * limb moves toward or away from the camera. A squat filmed from floor level
+ * foreshortens the descent, so a half rep projects the same knee angle as a
+ * deep one — which is exactly the cheat this replaced.
+ */
+export function angleDeg3(a: Landmark, b: Landmark, c: Landmark): number {
+  const abx = a.x - b.x;
+  const aby = a.y - b.y;
+  const abz = a.z - b.z;
+  const cbx = c.x - b.x;
+  const cby = c.y - b.y;
+  const cbz = c.z - b.z;
+
+  const dot = abx * cbx + aby * cby + abz * cbz;
+  const magA = Math.hypot(abx, aby, abz);
+  const magC = Math.hypot(cbx, cby, cbz);
+  if (magA < 1e-6 || magC < 1e-6) return Number.NaN;
+
+  const cos = Math.min(1, Math.max(-1, dot / (magA * magC)));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/** Straight-line distance between two landmarks, in 3D. */
+export function distance3(a: Landmark, b: Landmark): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 /** Inclination of the segment AB relative to horizontal, 0..90 degrees. */

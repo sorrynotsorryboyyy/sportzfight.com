@@ -81,13 +81,34 @@ function classifyMediaError(e: unknown): CameraErrorKind {
 
 interface PoseLandmarkerLike {
   detectForVideo(video: HTMLVideoElement, timestamp: number): {
+    /** Image space, 0..1 of the frame. What the skeleton is drawn from. */
     landmarks: Landmark[][];
+    /**
+     * Metres, origin at the hip midpoint, estimated in the BODY's frame
+     * rather than the image's.
+     *
+     * MediaPipe has always returned these and this app threw them away, which
+     * is how camera tilt became a cheat: every 2D measurement is a projection,
+     * so filming a squat from floor level foreshortens the descent and makes a
+     * half rep read as a deep one. A body-frame estimate does not care where
+     * the phone is.
+     */
+    worldLandmarks?: Landmark[][];
   };
   close(): void;
 }
 
 export interface PoseEngineOptions {
-  onFrame: (landmarks: Landmark[] | null, tMs: number) => void;
+  /**
+   * `world` is the same pose in metric body-space, or null when the runtime
+   * did not supply it. Detectors that need to be immune to camera placement
+   * read it; the overlay keeps drawing from the image-space set.
+   */
+  onFrame: (
+    landmarks: Landmark[] | null,
+    tMs: number,
+    world: Landmark[] | null,
+  ) => void;
   onStatus?: (status: EngineStatus) => void;
   onError?: (err: EngineError) => void;
   /** Detection cap. 30fps is plenty for a movement of ~1Hz and saves battery. */
@@ -306,10 +327,15 @@ export class PoseEngine {
 
       const result = this.landmarker.detectForVideo(video, ts);
       const lms = result?.landmarks?.[0] ?? null;
-      this.opts.onFrame(lms && lms.length ? lms : null, now);
+      const world = result?.worldLandmarks?.[0] ?? null;
+      this.opts.onFrame(
+        lms && lms.length ? lms : null,
+        now,
+        world && world.length ? world : null,
+      );
     } catch {
       // A single bad frame is not fatal; the next one usually recovers.
-      this.opts.onFrame(null, now);
+      this.opts.onFrame(null, now, null);
     } finally {
       this.busy = false;
     }

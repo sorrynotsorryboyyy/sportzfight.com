@@ -490,3 +490,227 @@ describe('the gates agree with each other', () => {
     expect(SQUAT_CONFIG.DOWN_ENTER).toBeLessThanOrEqual(95);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Camera placement: the same body, filmed from different heights.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A squat as a real 3D body, in metres, with the hip midpoint at the origin —
+ * the same convention MediaPipe uses for worldLandmarks.
+ *
+ * The knee travels FORWARD (in z, toward the camera) as the athlete descends,
+ * which is what actually happens and is precisely the component a 2D image
+ * destroys. The flat harness above cannot express it: every point there sits
+ * at z = 0, so a squat and a half squat differ only in a vertical distance,
+ * and any camera that compresses the vertical axis makes them look alike.
+ */
+function body3d(kneeAngle: number): Landmark[] {
+  const pts: Landmark[] = Array.from({ length: 33 }, () => lm(0, 0, 0));
+  const rad = (d: number) => (d * Math.PI) / 180;
+
+  const SEG = 0.45; // thigh and shin, metres
+
+  // Anchored at the FLOOR, because that is what stays put when someone
+  // squats: the feet are planted and the hips travel down to meet them. World
+  // coordinates here are a fixed room, not a frame that follows the athlete.
+  const hipHeight = 2 * SEG * Math.sin(rad(kneeAngle) / 2);
+  const kneeHeight = hipHeight / 2;
+  const halfSpan = hipHeight / 2;
+  const kneeFwd = Math.sqrt(Math.max(0, SEG * SEG - halfSpan * halfSpan));
+
+  // y grows DOWNWARD, matching MediaPipe. The floor is y = 0 and the body
+  // rises into negative y.
+  const set = (i: number, x: number, y: number, z: number) => {
+    pts[i] = { x, y, z, visibility: V };
+  };
+
+  set(LM.LEFT_ANKLE, -0.1, 0, 0);
+  set(LM.RIGHT_ANKLE, 0.1, 0, 0);
+  set(LM.LEFT_KNEE, -0.1, -kneeHeight, kneeFwd);
+  set(LM.RIGHT_KNEE, 0.1, -kneeHeight, kneeFwd);
+  set(LM.LEFT_HIP, -0.1, -hipHeight, 0);
+  set(LM.RIGHT_HIP, 0.1, -hipHeight, 0);
+  set(LM.LEFT_SHOULDER, -0.15, -hipHeight - 0.5, 0);
+  set(LM.RIGHT_SHOULDER, 0.15, -hipHeight - 0.5, 0);
+
+  return pts;
+}
+
+/**
+ * Project a 3D body onto the image plane from a camera fixed in the room.
+ *
+ * `cameraHeight` is metres above the floor: 0.9 is roughly hip height, the
+ * placement the setup hint asks for, and 0.05 is a phone lying flat on the
+ * floor. The camera stands 2.5 m away and is tilted to look at the standing
+ * athlete, then STAYS THERE — a phone on the floor does not follow you down,
+ * and that is exactly why it distorts the descent.
+ *
+ * An honest pinhole projection, so the vertical axis compresses unevenly
+ * across the frame. That uneven compression is the whole problem: it lets a
+ * half squat project the silhouette of a deep one.
+ */
+function project(world: Landmark[], cameraHeight: number): Landmark[] {
+  const DIST = 2.5;
+  const AIM = 0.9; // the camera is pointed at hip height of a standing body
+
+  // Fixed tilt, decided once by where the phone was put.
+  const tilt = Math.atan2(AIM - cameraHeight, DIST);
+  const cos = Math.cos(tilt);
+  const sin = Math.sin(tilt);
+
+  return world.map((p) => {
+    // World y grows downward and the floor is 0, so height above the floor is
+    // -p.y. Into camera-relative coordinates, then rotate about x.
+    const dy = -p.y - cameraHeight;
+    const dz = DIST + p.z;
+    const yc = -(dy * cos - dz * sin);
+    const zc = dy * sin + dz * cos;
+
+    const depth = Math.max(0.4, zc);
+    const f = 1.4; // focal length, chosen so a standing body fills the frame
+    return {
+      x: 0.5 + (p.x * f) / depth,
+      y: 0.5 + (yc * f) / depth,
+      // Image-space z carries MediaPipe relative depth; the 2D path never
+      // reads it and the 3D path uses the world set instead.
+      z: 0,
+      visibility: p.visibility,
+    };
+  });
+}
+
+/**
+ * Drive a full rep, filmed from `cameraY` metres below hip height.
+ *
+ * The body is identical at every camera height — moving a phone does not
+ * change what the athlete did — so any change in the verdict is the camera
+ * deciding the outcome, which is the bug.
+ */
+function doRep3d(
+  det: SquatDetector,
+  t: { ms: number },
+  opts: {
+    bottom?: number;
+    cameraHeight?: number;
+    holdMs?: number;
+    stepMs?: number;
+  } = {},
+) {
+  const { bottom = 90, cameraHeight = HIP_HEIGHT, holdMs = 200, stepMs = 33 } = opts;
+  const step = (angle: number) => {
+    const world = body3d(angle);
+    det.process(project(world, cameraHeight), t.ms, world);
+    t.ms += stepMs;
+  };
+
+  for (let i = 0; i < 5; i++) step(175);
+  for (let a = 175; a >= bottom; a -= 10) step(a);
+  for (let h = 0; h < Math.ceil(holdMs / stepMs); h++) step(bottom);
+  for (let a = bottom; a <= 175; a += 10) step(a);
+  step(176);
+}
+
+/** Metres above the floor. */
+const HIP_HEIGHT = 0.9;
+const FLOOR = 0.05;
+
+describe('camera placement cannot decide the verdict', () => {
+  /**
+   * The exploit the user found: "si on film de plus bas que soi on peut faire
+   * des demi rep de squat".
+   *
+   * A phone on the floor pointing up foreshortens the descent, so a half squat
+   * projects the knee angle of a deep one. Every gate in this detector read a
+   * projection, so every gate was fooled together — and the response until now
+   * had been to LOOSEN thresholds to absorb the distortion, which is what let
+   * it through.
+   *
+   * WHAT THESE TESTS PROVE, and what they do not.
+   *
+   * They prove the 3D path is camera-independent: the same body gives the same
+   * verdict whether the phone is at hip height or flat on the floor, and a
+   * half squat is refused from every one of them. Forcing the detector back
+   * onto the 2D projection makes four of them fail.
+   *
+   * They do NOT reproduce the original exploit. This synthetic figure is
+   * filmed close to head-on — the legs sit at x = +/-0.1 and the knee travels
+   * in z — so its PROJECTED knee angle reads about 176 degrees at every depth,
+   * and the 2D path scores nothing at all rather than scoring half reps. A
+   * faithful reproduction needs a genuinely side-on figure, which this harness
+   * does not model. The real check is the one on a real phone.
+   */
+  // Metres above the floor. HIP_HEIGHT is what the setup hint asks for;
+  // FLOOR is a phone lying flat, which is what the user was doing.
+  const HEIGHTS = [HIP_HEIGHT, 0.6, 0.3, FLOOR];
+
+  it.each(HEIGHTS)('counts a real parallel squat filmed from %s m up', (cameraHeight) => {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 4; i++) doRep3d(det, t, { bottom: 90, cameraHeight });
+    expect(det.autoReps).toBe(4);
+  });
+
+  it.each(HEIGHTS)('REFUSES a half squat filmed from %s m up', (cameraHeight) => {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    for (let i = 0; i < 4; i++) doRep3d(det, t, { bottom: 120, cameraHeight });
+    expect(det.autoReps).toBe(0);
+  });
+
+  it('gives the same count at every camera height', () => {
+    // The property that matters, stated directly: the verdict is a fact about
+    // the athlete, not about where the phone was put.
+    const counts = HEIGHTS.map((cameraHeight) => {
+      const det = new SquatDetector();
+      const t = { ms: 1000 };
+      for (let i = 0; i < 4; i++) doRep3d(det, t, { bottom: 90, cameraHeight });
+      return det.autoReps;
+    });
+    expect(new Set(counts).size).toBe(1);
+  });
+
+  it('warns that the camera is too low, without blocking the rep', () => {
+    // Advice, not a veto: a false positive must cost a sentence on screen,
+    // never a battle. So the warning appears AND the reps still count.
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    let sawWarning = false;
+
+    const step = (angle: number) => {
+      const world = body3d(angle);
+      const r = det.process(project(world, FLOOR), t.ms, world);
+      if (r.postureIssues.includes('camera_too_low')) sawWarning = true;
+      t.ms += 33;
+    };
+    for (let i = 0; i < 5; i++) step(175);
+    for (let rep = 0; rep < 3; rep++) {
+      for (let a = 175; a >= 90; a -= 10) step(a);
+      for (let h = 0; h < 7; h++) step(90);
+      for (let a = 90; a <= 175; a += 10) step(a);
+      step(176);
+    }
+
+    expect(sawWarning, 'a floor-level phone should be called out').toBe(true);
+    expect(det.autoReps, 'but honest reps must still count').toBe(3);
+  });
+
+  it('stays quiet when the camera is at hip height', () => {
+    const det = new SquatDetector();
+    const t = { ms: 1000 };
+    let sawWarning = false;
+    const step = (angle: number) => {
+      const world = body3d(angle);
+      const r = det.process(project(world, HIP_HEIGHT), t.ms, world);
+      if (r.postureIssues.includes('camera_too_low')) sawWarning = true;
+      t.ms += 33;
+    };
+    for (let i = 0; i < 5; i++) step(175);
+    for (let a = 175; a >= 90; a -= 10) step(a);
+    for (let h = 0; h < 7; h++) step(90);
+    for (let a = 90; a <= 175; a += 10) step(a);
+    step(176);
+
+    expect(sawWarning, 'correct framing must never be nagged').toBe(false);
+  });
+});

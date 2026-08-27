@@ -129,7 +129,7 @@ export function useExerciseSession({
   );
 
   const onFrame = useCallback(
-    (lms: Landmark[] | null, tMs: number) => {
+    (lms: Landmark[] | null, tMs: number, world: Landmark[] | null) => {
       // A reference comparison, once per frame. If React rebuilt the <video>
       // element the engine is still pumping the old, detached node — live
       // stream, readyState >= 2, landmarks flowing, nothing on screen. This
@@ -147,7 +147,7 @@ export function useExerciseSession({
       if (!det) return;
       // Frames are always processed so the athlete sees live form feedback
       // while setting up; only WRITES are gated on `active`.
-      consume(det.process(lms, tMs));
+      consume(det.process(lms, tMs, world));
     },
     [consume, detectorRef],
   );
