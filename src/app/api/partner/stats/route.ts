@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb, bearer, uidFromToken } from '@/lib/server/firebase-admin';
 import { PAYOUT_MINIMUM_CENTS } from '@/lib/partners/types';
+import { periodBounds, periodOf } from '@/lib/partners/period';
 
 /**
  * What a partner sees about their own performance.
@@ -38,9 +39,12 @@ export async function GET(req: Request) {
 
     const doc = owned.docs[0];
 
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+    // Paris, not the server clock. This used to be setDate(1)/setHours(0),
+    // which on a UTC box puts the boundary at 01:00 or 02:00 French time, so a
+    // payment made just after midnight on the 1st counted towards the previous
+    // month. Harmless on a live counter, not harmless once the same boundary
+    // decides which statement a line lands on.
+    const monthStart = periodBounds(periodOf(new Date())).start;
 
     const [referrals, payments] = await Promise.all([
       db.collection('users').where('partnerId', '==', doc.id).count().get(),

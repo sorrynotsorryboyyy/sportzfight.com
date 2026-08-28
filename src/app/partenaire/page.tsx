@@ -14,6 +14,7 @@ import { apiGet } from '@/lib/firebase/api';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { bpsToPercent } from '@/lib/partners/commission';
+import { periodLabel } from '@/lib/partners/period';
 import { SITE_URL } from '@/lib/site';
 import type { PartnerStats } from '@/lib/partners/types';
 
@@ -27,6 +28,31 @@ import type { PartnerStats } from '@/lib/partners/types';
  * It exists because a partner with no visibility forgets the code within a
  * fortnight. Seeing the number move is the whole incentive.
  */
+
+interface StatementRow {
+  period: string;
+  totalCents: number;
+  invoiceCount: number;
+  status: string;
+  belowMinimum?: boolean;
+  paidAt: string | null;
+}
+
+interface StatementsPayload {
+  statements: StatementRow[];
+  draft: StatementRow | null;
+  payoutMinimumCents: number;
+}
+
+/** "3 avril 2026" — how a receipt reads in French. */
+function frenchDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
 
 function Figure({
   label,
@@ -61,11 +87,18 @@ export default function PartnerPage() {
   const { loading: authLoading } = useRequireAuth();
   const [stats, setStats] = useState<PartnerStats | null | 'none'>(null);
   const [copied, setCopied] = useState(false);
+  const [history, setHistory] = useState<StatementsPayload | null>(null);
 
   const load = useCallback(() => {
     void apiGet<{ partner: PartnerStats | null }>('/api/partner/stats').then((r) => {
       if (!r.ok || !r.data) return setStats('none');
       setStats(r.data.partner ?? 'none');
+    });
+    // Separate call, and a failure here must not take the dashboard down:
+    // "have I been paid" is useful, but "how am I doing" is the reason the
+    // page exists.
+    void apiGet<StatementsPayload>('/api/partner/statements').then((r) => {
+      if (r.ok && r.data) setHistory(r.data);
     });
   }, []);
 
@@ -190,6 +223,49 @@ export default function PartnerPage() {
             </span>
           </p>
         </Card>
+      )}
+
+      {history && (history.statements.length > 0 || history.draft) && (
+        <section>
+          <h2 className="text-3xs font-bold uppercase tracking-widest text-ink-500">
+            Tes relevés
+          </h2>
+          {/* A partner needs to see that money ARRIVED, not only that it is
+              owed. Before this the dashboard held one lifetime total and no
+              dates, so "have I been paid for March?" had no answer anywhere in
+              the app and the question came back by email every month. */}
+          <ul className="mt-2 flex flex-col gap-2">
+            {[...(history.draft ? [history.draft] : []), ...history.statements].map(
+              (row) => (
+                <li key={row.period}>
+                  <Card padding="md" radius="md">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm font-semibold text-ink-200">
+                        {periodLabel(row.period)}
+                      </span>
+                      <span className="tnum text-sm font-bold text-ink-100">
+                        {euros(row.totalCents)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-3xs text-ink-500">
+                      {row.status === 'paid'
+                        ? `Versé le ${frenchDate(row.paidAt)} · ${row.invoiceCount} abonnements`
+                        : row.belowMinimum
+                          ? `Reporté — le virement part à partir de ${euros(history.payoutMinimumCents)}`
+                          : `En attente de virement · ${row.invoiceCount} abonnements`}
+                    </p>
+                  </Card>
+                </li>
+              ),
+            )}
+          </ul>
+        </section>
+      )}
+
+      {history && history.statements.length === 0 && !history.draft && (
+        <p className="text-xs text-ink-500">
+          Ton premier relevé arrivera au début du mois prochain.
+        </p>
       )}
 
       {!stats.active && (

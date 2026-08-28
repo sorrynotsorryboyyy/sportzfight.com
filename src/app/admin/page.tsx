@@ -10,6 +10,7 @@ import { Tabs } from '@/components/ui/Tabs';
 import { euros } from '@/components/ui/Table';
 import { DetectorBench } from '@/components/admin/DetectorBench';
 import { PartnersPanel } from '@/components/admin/PartnersPanel';
+import { PayoutsPanel } from '@/components/admin/PayoutsPanel';
 import { ApplicationsPanel } from '@/components/admin/ApplicationsPanel';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAdmin } from '@/lib/firebase/useRequireAdmin';
@@ -23,11 +24,12 @@ import { apiGet } from '@/lib/firebase/api';
  * decides what to render; it is not the boundary.
  */
 
-type TabId = 'apercu' | 'partenaires' | 'candidatures' | 'detecteur';
+type TabId = 'apercu' | 'partenaires' | 'versements' | 'candidatures' | 'detecteur';
 
 const TABS = [
   { id: 'apercu' as const, label: 'Aperçu' },
   { id: 'partenaires' as const, label: 'Partenaires' },
+  { id: 'versements' as const, label: 'Versements' },
   { id: 'candidatures' as const, label: 'Candidatures' },
   { id: 'detecteur' as const, label: 'Détecteur' },
 ];
@@ -274,6 +276,7 @@ export default function AdminPage() {
 
       {tab === 'apercu' && <Overview />}
       {tab === 'partenaires' && <PartnersPanel />}
+      {tab === 'versements' && <PayoutsPanel />}
       {tab === 'candidatures' && <ApplicationsPanel />}
       {tab === 'detecteur' && <DetectorBench />}
     </main>

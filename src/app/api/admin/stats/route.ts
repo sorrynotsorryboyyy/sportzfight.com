@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { periodBounds, periodOf } from '@/lib/partners/period';
 import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
 
 /**
@@ -21,9 +22,9 @@ export async function GET(req: Request) {
   if (!db) return NextResponse.json({ error: 'unavailable' }, { status: 503 });
 
   try {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+    // Paris, not the server clock — see the note in /api/partner/stats. Same
+    // boundary, so the admin figure and the partner figure agree.
+    const monthStart = periodBounds(periodOf(new Date())).start;
 
     const [users, battles, finished, payments] = await Promise.all([
       db.collection('users').count().get(),
@@ -39,6 +40,23 @@ export async function GET(req: Request) {
     let commissionOwedCents = 0;
     let commissionPaidCents = 0;
     const payingSubs = new Set<string>();
+
+    /*
+     * A full scan of the ledger, deliberately: every figure below needs the
+     * amounts, and the collection holds one document per invoice.
+     *
+     * It stops being deliberate somewhere around 50k documents — roughly a
+     * thousand subscribers sustained for four years — where deserialisation
+     * pushes this route towards the function timeout. It will fail all at once
+     * rather than degrade, so the size is watched here to make the failure
+     * predicted rather than discovered. The fix, when it comes, is a monthly
+     * rollup written by the webhook.
+     */
+    if (payments.size > 20_000) {
+      console.warn(
+        `[admin/stats] ledger at ${payments.size} docs — move to monthly aggregates`,
+      );
+    }
 
     for (const doc of payments.docs) {
       const amount = (doc.get('amountCents') as number) ?? 0;

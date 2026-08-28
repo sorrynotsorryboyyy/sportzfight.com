@@ -883,5 +883,24 @@ service cloud.firestore {
     match /partnerCodes/{code} {
       allow read, write: if false;
     }
+
+    // ===============================================================
+    // PAYOUTS — one monthly statement per partner
+    // ===============================================================
+    //
+    // A statement is a snapshot and a receipt: it records that a bank transfer
+    // was made, for which month, covering which invoices. It is NOT a balance —
+    // what is owed remains the sum of unpaid commission in `payments`, because
+    // two places holding the same number is how a reconciliation becomes
+    // impossible.
+    //
+    // Closed to clients in both directions. A partner reads their own history
+    // through /api/partner/statements, which finds them from a verified token
+    // rather than a parameter; letting them query here directly would expose
+    // every other partner's earnings, since a rule cannot restrict a `list` to
+    // documents matching a field the client chose.
+    match /payouts/{statementId} {
+      allow read, write: if false;
+    }
   }
 }

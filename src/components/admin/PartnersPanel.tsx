@@ -171,6 +171,11 @@ export function PartnersPanel() {
   useEffect(load, [load]);
 
   const pay = async (id: string) => {
+    // Goes through the statement route, which stamps the ledger AND writes the
+    // statement in one commit. A payment with no statement is exactly the hole
+    // the Versements tab exists to close, so this button must not be a second,
+    // silent way to make one. No period is sent: the route defaults to last
+    // month, the same default the tab shows.
     setBusyId(id);
     await apiPost('/api/admin/payouts', { partnerId: id });
     setBusyId(null);
