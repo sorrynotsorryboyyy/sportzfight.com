@@ -1970,6 +1970,10 @@ describe('partners and payments - the money boundary', () => {
     name: 'Salle FitPro',
     kind: 'gym',
     ownerUid: null,
+    // The OLD 12%/7% rates, left here deliberately after the move to a flat
+    // 25%. These are seed data for permission checks, not assertions about
+    // pricing, and a stale rate in the fixture is a free reminder that
+    // historical partner documents carry whatever they were created with.
     rateFirstBps: 1200,
     rateRecurringBps: 700,
     city: 'Lyon',
@@ -2128,6 +2132,42 @@ describe('partners and payments - the money boundary', () => {
     await assertSucceeds(
       updateDoc(doc(dbOf(P1), 'users', P1), { avatar: 'https://x/y.png' }),
     );
+  });
+
+  describe('the partner code lock', () => {
+    /**
+     * Codes are unique because a lock DOCUMENT holds them, the same way
+     * usernames work. Firestore can only guarantee uniqueness of a document
+     * id, never of a field, so the previous query-then-write let two admins
+     * create the same code at the same instant — and since /api/referral
+     * resolves a code with limit(1), one partner would silently collect the
+     * other's referrals and their money.
+     *
+     * The lock is written by the Admin SDK inside a transaction. No client
+     * touches it, in either direction.
+     */
+
+    it('REFUSES letting anyone read the code locks', async () => {
+      await consoleWrite('partnerCodes/FITPRO', { partnerId: 'partner-1' });
+      // Not even an admin through the client SDK: enumerating every partner
+      // code has no legitimate client-side use.
+      await consoleWrite('users/' + P1, profile({ role: 'admin' }));
+      await assertFails(getDoc(doc(dbOf(P1), 'partnerCodes', 'FITPRO')));
+    });
+
+    it('REFUSES letting a client claim a code', async () => {
+      // The attack this closes: claim the lock for a code you do not own, or
+      // repoint an existing one at your own partner document.
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'partnerCodes', 'FITPRO'), { partnerId: 'mine' }),
+      );
+    });
+
+    it('REFUSES letting a client release a code', async () => {
+      // Deleting the lock would reopen the race it exists to close.
+      await consoleWrite('partnerCodes/FITPRO', { partnerId: 'partner-1' });
+      await assertFails(deleteDoc(doc(dbOf(P1), 'partnerCodes', 'FITPRO')));
+    });
   });
 });
 

@@ -127,10 +127,21 @@ export default function PartnerPage() {
         <h1 className="text-3xl font-black uppercase leading-none tracking-tighter">
           {stats.name}
         </h1>
+        {/* One sentence, because there is one rate. This used to read
+            "X % le premier mois, puis Y % a chaque renouvellement" and would
+            now print the same number twice. The negotiated case still exists,
+            so it gets its own line rather than resurrecting the tier phrasing
+            for everybody. */}
         <p className="mt-2 text-sm text-ink-400">
-          {bpsToPercent(stats.rateFirstBps)} % le premier mois, puis{' '}
-          {bpsToPercent(stats.rateRecurringBps)} % à chaque renouvellement.
+          {bpsToPercent(stats.rateRecurringBps)} % sur chaque abonnement, le
+          premier mois comme les suivants.
         </p>
+        {stats.rateFirstBps !== stats.rateRecurringBps && (
+          <p className="mt-1 text-xs text-ink-500">
+            {bpsToPercent(stats.rateFirstBps)} % sur le premier mois — un taux
+            négocié pour toi.
+          </p>
+        )}
       </div>
 
       <Card>
@@ -162,7 +173,10 @@ export default function PartnerPage() {
           hint={
             payable
               ? 'versement au prochain paiement'
-              : `versé à partir de ${euros(stats.payoutMinimumCents)}`
+              // "Reporté", not "versé à partir de": the latter reads as a
+              // condition on EARNING, and a partner who thinks small balances
+              // are forfeited stops believing the other figures too.
+              : `reporté — le virement part à partir de ${euros(stats.payoutMinimumCents)}`
           }
         />
       </div>

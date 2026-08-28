@@ -863,5 +863,25 @@ service cloud.firestore {
     match /payments/{invoiceId} {
       allow read, write: if false;
     }
+
+    // ===============================================================
+    // PARTNER CODE LOCKS — uniqueness, enforced
+    // ===============================================================
+    //
+    // One document per code, id IS the code. The same compare-and-swap trick
+    // usernames/{key} uses, for the same reason: Firestore can only guarantee
+    // uniqueness of a DOCUMENT ID, never of a field.
+    //
+    // What this prevents: partner creation used to query for a clashing code
+    // and then write, so two admins creating FITPRO at the same instant both
+    // succeeded. Nothing surfaced it — /api/referral and /p/[code] both resolve
+    // a code with limit(1) — so one partner would quietly collect the other's
+    // referrals and their commission.
+    //
+    // Fully closed to clients. Written only by the Admin SDK inside a
+    // transaction, and no client has any business enumerating partner codes.
+    match /partnerCodes/{code} {
+      allow read, write: if false;
+    }
   }
 }

@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { Footer } from '@/components/ui/Footer';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { bpsToPercent } from '@/lib/partners/commission';
-import { RATE_FIRST_BPS, RATE_RECURRING_BPS } from '@/lib/partners/types';
+import { RATE_RECURRING_BPS } from '@/lib/partners/types';
 
 /**
  * The recruitment page.
@@ -35,7 +35,7 @@ const STEPS = [
   {
     n: '3',
     title: 'Vous êtes payé',
-    body: 'Commission sur chaque abonnement, visible en direct depuis votre espace, versée par virement.',
+    body: 'Commission sur chaque abonnement, visible en direct depuis votre espace. Relevé le 1er de chaque mois, versé par virement.',
   },
 ] as const;
 
@@ -78,28 +78,29 @@ export default function PartnersProgramme() {
         </p>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2">
+      {/* ONE card, not two.
+          The old layout was "Premier mois 12% / Puis chaque mois 7%", which
+          existed because the rate was a tier. With a flat rate, two cards
+          showing the same number read as a mistake and bury the single fact
+          this page exists to land. */}
+      <section>
         <Card className="border-volt-500/40">
           <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
-            Premier mois
+            Sur chaque abonnement, à vie
           </p>
-          <p className="tnum mt-1 text-4xl font-black leading-none text-volt-500">
-            {bpsToPercent(RATE_FIRST_BPS)} %
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-ink-400">
-            de chaque premier abonnement souscrit avec votre code.
-          </p>
-        </Card>
-        <Card className="border-gold/40">
-          <p className="text-3xs font-bold uppercase tracking-widest text-ink-500">
-            Puis chaque mois
-          </p>
-          <p className="tnum mt-1 text-4xl font-black leading-none text-gold">
+          <p className="tnum mt-1 text-6xl font-black leading-none text-volt-500">
             {bpsToPercent(RATE_RECURRING_BPS)} %
           </p>
-          <p className="mt-2 text-xs leading-relaxed text-ink-400">
-            à chaque renouvellement, aussi longtemps que la personne reste
-            abonnée.
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-ink-300">
+            Le même taux le premier mois et à chaque renouvellement, aussi
+            longtemps que la personne reste abonnée. Pas de palier, pas de
+            dégressivité, pas de plafond.
+          </p>
+          {/* The worked example is deliberate: 25% of nothing is nothing, and a
+              gym owner converts a percentage into euros or does not act. */}
+          <p className="mt-3 text-xs leading-relaxed text-ink-500">
+            Un adhérent abonné à 5,99 €/mois vous rapporte 1,50 € par mois, soit
+            18 € sur l’année. Dix adhérents, 180 €.
           </p>
         </Card>
       </section>

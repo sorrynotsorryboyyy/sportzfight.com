@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
-import {
-  defaultRates,
-  isValidCode,
-  normaliseCode,
-} from '@/lib/partners/commission';
+import { createPartner } from '@/lib/server/partners';
+import { isValidCode, normaliseCode } from '@/lib/partners/commission';
 import type { PartnerKind } from '@/lib/partners/types';
 
 /**
@@ -105,37 +102,27 @@ export async function POST(req: Request) {
   if (!name) return NextResponse.json({ error: 'bad_name' }, { status: 400 });
 
   try {
-    // Codes must be unique: two partners on one code would make every
-    // commission ambiguous.
-    const clash = await db
-      .collection('partners')
-      .where('code', '==', code)
-      .limit(1)
-      .get();
-    if (!clash.empty) {
-      return NextResponse.json({ error: 'code_taken' }, { status: 409 });
-    }
-
-    const rates = defaultRates();
-    const ref = await db.collection('partners').add({
+    // Uniqueness is enforced by a lock document inside a transaction, not by a
+    // query — see createPartner. Two partners on one code would send one of
+    // them the other's referrals, silently.
+    const created = await createPartner(db, {
       code,
       name,
       kind,
       ownerUid: typeof body.ownerUid === 'string' ? body.ownerUid : null,
-      rateFirstBps:
-        typeof body.rateFirstBps === 'number' ? body.rateFirstBps : rates.rateFirstBps,
-      rateRecurringBps:
-        typeof body.rateRecurringBps === 'number'
-          ? body.rateRecurringBps
-          : rates.rateRecurringBps,
       city: typeof body.city === 'string' ? body.city.trim() : null,
       blurb: typeof body.blurb === 'string' ? body.blurb.trim() : null,
-      logoUrl: null,
-      active: true,
-      createdAt: new Date(),
+      rateFirstBps:
+        typeof body.rateFirstBps === 'number' ? body.rateFirstBps : undefined,
+      rateRecurringBps:
+        typeof body.rateRecurringBps === 'number' ? body.rateRecurringBps : undefined,
     });
 
-    return NextResponse.json({ id: ref.id, code });
+    if (!created.ok) {
+      return NextResponse.json({ error: 'code_taken' }, { status: 409 });
+    }
+
+    return NextResponse.json({ id: created.id, code: created.code });
   } catch {
     return NextResponse.json({ error: 'failed' }, { status: 500 });
   }

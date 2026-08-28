@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, adminDenial, checkAdmin } from '@/lib/server/firebase-admin';
-import { defaultRates, isValidCode, normaliseCode } from '@/lib/partners/commission';
+import { createPartner } from '@/lib/server/partners';
+import { isValidCode, normaliseCode } from '@/lib/partners/commission';
 
 /**
  * Review professional applications.
@@ -87,30 +88,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'bad_code' }, { status: 400 });
     }
 
-    // Codes must be unique or every commission becomes ambiguous.
-    const clash = await db
-      .collection('partners')
-      .where('code', '==', code)
-      .limit(1)
-      .get();
-    if (!clash.empty) {
-      return NextResponse.json({ error: 'code_taken' }, { status: 409 });
-    }
-
-    const rates = defaultRates();
-    const partner = await db.collection('partners').add({
+    // Same locked creation path as /api/admin/partners. Shared rather than
+    // duplicated: this route and that one used to hold two copies of the
+    // uniqueness check, which is how a fix lands on one and misses the other.
+    const created = await createPartner(db, {
       code,
-      name: app.get('structure'),
+      name: app.get('structure') as string,
       kind: app.get('kind') === 'gym' ? 'gym' : 'coach',
       // Linked immediately, so /partenaire works the moment they refresh.
       ownerUid: uid,
-      ...rates,
-      city: app.get('city') || null,
-      blurb: app.get('discipline') || null,
-      logoUrl: null,
-      active: true,
-      createdAt: FieldValue.serverTimestamp(),
+      city: (app.get('city') as string) || null,
+      blurb: (app.get('discipline') as string) || null,
     });
+
+    if (!created.ok) {
+      return NextResponse.json({ error: 'code_taken' }, { status: 409 });
+    }
+    const partner = { id: created.id };
 
     await appRef.set(
       {

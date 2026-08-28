@@ -9,7 +9,11 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Table, euros, type Column } from '@/components/ui/Table';
 import { apiGet, apiPatch, apiPost } from '@/lib/firebase/api';
 import { bpsToPercent, normaliseCode } from '@/lib/partners/commission';
-import { PAYOUT_MINIMUM_CENTS } from '@/lib/partners/types';
+import {
+  PAYOUT_MINIMUM_CENTS,
+  RATE_FIRST_BPS,
+  RATE_RECURRING_BPS,
+} from '@/lib/partners/types';
 import { SITE_URL } from '@/lib/site';
 
 /**
@@ -152,6 +156,8 @@ export function PartnersPanel() {
   const [unconfigured, setUnconfigured] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrated, setMigrated] = useState<string | null>(null);
 
   const load = useCallback(() => {
     void apiGet<{ partners: Row[] }>('/api/admin/partners').then((r) => {
@@ -168,6 +174,41 @@ export function PartnersPanel() {
     setBusyId(id);
     await apiPost('/api/admin/payouts', { partnerId: id });
     setBusyId(null);
+    load();
+  };
+
+  /**
+   * Partners still on the previous default rate.
+   *
+   * The rate lives on each partner document, so raising the constant leaves
+   * everyone already created untouched: /partenaires would advertise a rate no
+   * live partner is actually on. This surfaces that instead of letting a
+   * partner discover it on their own dashboard.
+   */
+  const stale = (rows ?? []).filter(
+    (r) =>
+      r.rateFirstBps !== RATE_FIRST_BPS || r.rateRecurringBps !== RATE_RECURRING_BPS,
+  );
+
+  const migrateRates = async () => {
+    setMigrating(true);
+    setMigrated(null);
+    const r = await apiPost<{ moved: number; negotiated: string[] }>(
+      '/api/admin/partners/rates',
+      {},
+    );
+    setMigrating(false);
+    if (r.ok && r.data) {
+      const { moved, negotiated } = r.data;
+      setMigrated(
+        negotiated.length > 0
+          ? `${moved} partenaire(s) passé(s) à ${bpsToPercent(RATE_RECURRING_BPS)} %. ` +
+              `Taux négocié laissé tel quel : ${negotiated.join(', ')}.`
+          : `${moved} partenaire(s) passé(s) à ${bpsToPercent(RATE_RECURRING_BPS)} %.`,
+      );
+    } else {
+      setMigrated('La migration a échoué. Réessaie.');
+    }
     load();
   };
 
@@ -232,9 +273,14 @@ export function PartnersPanel() {
     {
       key: 'rates',
       header: 'Taux',
+      // One number when the rates agree, which is now everyone on the default.
+      // "25 % / 25 %" in every row makes the one negotiated partner invisible,
+      // which is the only row where this column carries information.
       render: (r) => (
         <span className="tnum text-ink-400">
-          {bpsToPercent(r.rateFirstBps)} % / {bpsToPercent(r.rateRecurringBps)} %
+          {r.rateFirstBps === r.rateRecurringBps
+            ? `${bpsToPercent(r.rateFirstBps)} %`
+            : `${bpsToPercent(r.rateFirstBps)} % / ${bpsToPercent(r.rateRecurringBps)} %`}
         </span>
       ),
     },
@@ -293,6 +339,31 @@ export function PartnersPanel() {
         rowKey={(r) => r.id}
         empty="Aucun partenaire. Ajoute une salle ou un coach pour commencer."
       />
+
+      {stale.length > 0 && (
+        <Card className="border-gold/40">
+          <p className="text-sm text-ink-300">
+            {stale.length} partenaire(s) sont encore à l’ancien taux.
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-500">
+            Préviens-les avant : leur tableau de bord changera sous leurs yeux.
+            Un taux négocié ne sera pas touché.
+          </p>
+          <Button
+            size="md"
+            variant="secondary"
+            className="mt-3"
+            disabled={migrating}
+            onClick={() => void migrateRates()}
+          >
+            {migrating
+              ? 'Migration…'
+              : `Les passer à ${bpsToPercent(RATE_RECURRING_BPS)} %`}
+          </Button>
+        </Card>
+      )}
+
+      {migrated && <p className="text-xs text-ink-400">{migrated}</p>}
 
       <p className="text-3xs leading-relaxed text-ink-600">
         « Marquer payé » n’envoie pas d’argent : l’app ne fait aucun virement.
