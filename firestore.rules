@@ -848,6 +848,96 @@ service cloud.firestore {
       allow create, update: if isAdmin();
       // Deactivate rather than delete: history must stay explicable.
       allow delete: if false;
+
+      // -----------------------------------------------------------
+      // OFFERS — what the gym gives a subscriber, in person
+      // -----------------------------------------------------------
+      // The partner writes these; an admin approves before they are public.
+      // That order matters: /p/CODE is a page SportzFight publishes, and an
+      // unreviewed claim on it is made in our name.
+      //
+      // The partner is identified by ownerUid on the PARENT document, read
+      // with get(). Comments in this codebase once claimed rules could not
+      // read another document; they were wrong — isAdmin() has always done
+      // exactly this — and the offer path depends on it.
+      //
+      // A subcollection rather than a field on the parent, and that IS the
+      // security design: match blocks are independent, so write access here
+      // confers NO access to the parent document, which is where the
+      // commission rate and the active flag live.
+      // Legal identity — SIRET, registered name. Closed to every client,
+      // including the partner themselves, because the parent document is
+      // world-readable and a SIRET is personal data for a micro-entrepreneur.
+      // Written by the admin through the Admin SDK. Same shape as
+      // users/{uid}/private/, and for the same reason.
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+
+      match /offers/{offerId} {
+
+        function partnerDoc() {
+          return get(/databases/$(database)/documents/partners/$(partnerId)).data;
+        }
+
+        // .get() with a default rather than .ownerUid: a partner created from
+        // the admin form has ownerUid null, and a hand-made document may not
+        // carry the field at all. Neither may throw.
+        function isOwner() {
+          return signedIn()
+              && exists(/databases/$(database)/documents/partners/$(partnerId))
+              && partnerDoc().get('ownerUid', '') == request.auth.uid;
+        }
+
+        function offerLabelMax()   { return 80; }
+        function offerDetailsMax() { return 200; }
+
+        // Shape and bounds. hasOnly() also stops a partner smuggling an
+        // unvalidated field onto a document nobody checks.
+        function wellFormedOffer() {
+          return request.resource.data.keys().hasOnly(
+                   ['label', 'details', 'status', 'authorUid',
+                    'createdAt', 'updatedAt', 'reviewNote'])
+              && request.resource.data.label is string
+              && request.resource.data.label.size() > 0
+              && request.resource.data.label.size() <= offerLabelMax()
+              && (request.resource.data.get('details', null) == null
+                   || (request.resource.data.details is string
+                       && request.resource.data.details.size() <= offerDetailsMax()))
+              && request.resource.data.authorUid == request.auth.uid
+              && request.resource.data.updatedAt == request.time;
+        }
+
+        // Public: /p/CODE renders these for a visitor with no account. Pending
+        // and rejected ones are readable too — hiding them here would be
+        // theatre, since the page filters on status and the only thing exposed
+        // is a sentence a gym wrote about its own premises.
+        allow get, list: if true;
+
+        // A partner may PROPOSE. status == 'pending' is the whole guard, and
+        // it is the same trick partnerApplications uses so an applicant cannot
+        // approve themselves.
+        allow create: if (isOwner() || isAdmin())
+                      && wellFormedOffer()
+                      && request.resource.data.createdAt == request.time
+                      && request.resource.data.get('reviewNote', null) == null
+                      && (isAdmin() || request.resource.data.status == 'pending');
+
+        // A partner editing their own offer sends it BACK to pending —
+        // literally pending, not merely unchanged. Otherwise "1 séance
+        // d'essai" is approved and then quietly edited into anything at all,
+        // and the review would have reviewed nothing.
+        allow update: if isAdmin()
+                      || (isOwner()
+                          && wellFormedOffer()
+                          && request.resource.data.createdAt == resource.data.createdAt
+                          && request.resource.data.status == 'pending'
+                          && request.resource.data.get('reviewNote', null) == null);
+
+        // A partner may withdraw an offer. Nothing here is history that has to
+        // stay explicable, unlike a payment or a battle.
+        allow delete: if isOwner() || isAdmin();
+      }
     }
 
     // ===============================================================

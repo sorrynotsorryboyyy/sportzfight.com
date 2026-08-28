@@ -15,6 +15,7 @@ import { isFirebaseConfigured } from '@/lib/firebase/client';
 import { useRequireAuth } from '@/lib/firebase/useRequireAuth';
 import { bpsToPercent } from '@/lib/partners/commission';
 import { periodLabel } from '@/lib/partners/period';
+import { OffersEditor } from '@/components/partner/OffersEditor';
 import { SITE_URL } from '@/lib/site';
 import type { PartnerStats } from '@/lib/partners/types';
 
@@ -224,6 +225,8 @@ export default function PartnerPage() {
           </p>
         </Card>
       )}
+
+      <OffersEditor />
 
       {history && (history.statements.length > 0 || history.draft) && (
         <section>

@@ -140,6 +140,59 @@ export interface Payment {
   statementId?: string | null;
 }
 
+/**
+ * Something a partner gives you in person for being on SportzFight:
+ * "1 séance d'essai offerte", "-20 % le premier mois", "gourde offerte".
+ *
+ * NOT called a "perk". That word already means a SUBSCRIPTION benefit in this
+ * codebase (see lib/subscription.ts and tests/perks.test.ts), and two meanings
+ * for one word is how the wrong thing gets rendered on the wrong page.
+ *
+ * Redeemed at the gym, never in the app. No stock, no shipping, no
+ * fulfilment: this is a promise the partner makes on their own premises, and
+ * the app's only job is to display it accurately — and to say clearly whose
+ * promise it is.
+ *
+ * Lives in a SUBCOLLECTION rather than an array on the partner document,
+ * because the partner has to be able to write these and the partner document
+ * holds their commission rate. An array would mean granting write access to
+ * the document that decides how much money they are paid, and rules cannot
+ * iterate an array, so "every element is still pending" would be
+ * unenforceable.
+ */
+export type OfferStatus = 'pending' | 'approved' | 'rejected';
+
+export interface PartnerOffer {
+  id: string;
+  /** "1 séance d'essai offerte". Shown in bold on /p/CODE. */
+  label: string;
+  /** The conditions. "Sur présentation de ton compte, hors samedi." */
+  details: string | null;
+  status: OfferStatus;
+  /** The uid that wrote it — the partner's owner, or an admin. */
+  authorUid: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+  /** Why an admin refused. Shown to the partner, never publicly. */
+  reviewNote: string | null;
+}
+
+/**
+ * Caps. MIRRORED IN firestore.rules — keep the two in sync.
+ *
+ * The two length caps are per-document and therefore enforceable in rules.
+ * OFFERS_MAX is not: counting sibling documents is impossible there, so it is
+ * enforced in the API route and by the public page's own query limit. That is
+ * acceptable because the consequence of bypassing it is bounded and NOT
+ * financial — a scripted client gets a pile of pending offers no admin will
+ * approve, so nothing reaches /p/CODE. A rate cap would be money, and that one
+ * IS enforced, by the parent document's rule.
+ */
+export const OFFER_LABEL_MAX = 80;
+export const OFFER_DETAILS_MAX = 200;
+/** Six is already most of a phone screen, below the primary call to action. */
+export const OFFERS_MAX = 6;
+
 /** What a partner is allowed to see about their own performance. */
 export interface PartnerStats {
   code: string;

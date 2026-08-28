@@ -2134,6 +2134,205 @@ describe('partners and payments - the money boundary', () => {
     );
   });
 
+  describe('partner offers - written by the gym, published by us', () => {
+    /**
+     * A partner writes what they give a subscriber in person; an admin
+     * approves before it reaches /p/CODE. Four things must be impossible, and
+     * each is tested below:
+     *
+     *   1. publishing without review
+     *   2. editing your own commission rate
+     *   3. touching another partner's anything
+     *   4. flipping your own active flag
+     *
+     * (2) and (4) are blocked STRUCTURALLY rather than by a check: rates and
+     * the active flag live on the PARENT document, and a subcollection rule
+     * confers no access to its parent. That is why offers are a subcollection
+     * and not a field.
+     */
+
+    const PID = 'partner-1';
+
+    const offer = (over = {}) => ({
+      label: '1 séance d’essai offerte',
+      details: 'Sur présentation de ton compte SportzFight.',
+      status: 'pending',
+      authorUid: P1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      reviewNote: null,
+      ...over,
+    });
+
+    /** A partner document owned by P1. */
+    async function seedOwned() {
+      await consoleWrite('partners/' + PID, partner({ ownerUid: P1 }));
+    }
+
+    it('lets the owner propose an offer', async () => {
+      await seedOwned();
+      await assertSucceeds(
+        setDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), offer()),
+      );
+    });
+
+    it('REFUSES publishing without review', async () => {
+      // THE test. status is forced to pending on create for anyone but an
+      // admin, exactly as partnerApplications forces it.
+      await seedOwned();
+      await assertFails(
+        setDoc(
+          doc(dbOf(P1), 'partners', PID, 'offers', 'o1'),
+          offer({ status: 'approved' }),
+        ),
+      );
+    });
+
+    it('REFUSES approving an offer after it was written', async () => {
+      await seedOwned();
+      await consoleWrite('partners/' + PID + '/offers/o1', offer());
+      await assertFails(
+        updateDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), {
+          status: 'approved',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    });
+
+    it('sends an approved offer back to pending when the owner edits it', async () => {
+      // Otherwise an approved offer is quietly rewritten into anything at all
+      // and the review reviewed nothing. The edit is allowed; staying approved
+      // is not.
+      await seedOwned();
+      await consoleWrite(
+        'partners/' + PID + '/offers/o1',
+        offer({ status: 'approved' }),
+      );
+
+      // updateDoc, not setDoc: the rule pins createdAt to the stored value, so
+      // a client rewriting the whole document with a fresh serverTimestamp()
+      // is refused on that alone. Real edits send the changed fields.
+      await assertFails(
+        updateDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), {
+          label: 'Autre chose',
+          status: 'approved',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertSucceeds(
+        updateDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), {
+          label: 'Autre chose',
+          status: 'pending',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    });
+
+    it('REFUSES editing the commission rate through the offer path', async () => {
+      // Structural: rates are on the parent, whose rule is admin-only and
+      // untouched by anything in the offers block.
+      await seedOwned();
+      await assertFails(
+        updateDoc(doc(dbOf(P1), 'partners', PID), { rateRecurringBps: 9000 }),
+      );
+    });
+
+    it('REFUSES flipping the active flag', async () => {
+      await seedOwned();
+      await assertFails(
+        updateDoc(doc(dbOf(P1), 'partners', PID), { active: false }),
+      );
+    });
+
+    it("REFUSES writing another partner's offers", async () => {
+      // partnerId comes from the PATH being written, so to write FITPRO's
+      // offers you must be the uid FITPRO's document names.
+      await seedOwned();
+      await assertFails(
+        setDoc(
+          doc(dbOf(P2), 'partners', PID, 'offers', 'o1'),
+          offer({ authorUid: P2 }),
+        ),
+      );
+    });
+
+    it('REFUSES an offer on a partner with no owner', async () => {
+      // ownerUid is null on every partner created from the admin form. It must
+      // evaluate to false rather than throw, and must not match anybody.
+      await consoleWrite('partners/' + PID, partner({ ownerUid: null }));
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), offer()),
+      );
+    });
+
+    it('REFUSES an over-long label or details', async () => {
+      await seedOwned();
+      await assertFails(
+        setDoc(
+          doc(dbOf(P1), 'partners', PID, 'offers', 'o1'),
+          offer({ label: 'x'.repeat(81) }),
+        ),
+      );
+      await assertFails(
+        setDoc(
+          doc(dbOf(P1), 'partners', PID, 'offers', 'o2'),
+          offer({ details: 'x'.repeat(201) }),
+        ),
+      );
+    });
+
+    it('REFUSES an empty label', async () => {
+      await seedOwned();
+      await assertFails(
+        setDoc(
+          doc(dbOf(P1), 'partners', PID, 'offers', 'o1'),
+          offer({ label: '' }),
+        ),
+      );
+    });
+
+    it('REFUSES smuggling an unvalidated field onto an offer', async () => {
+      await seedOwned();
+      await assertFails(
+        setDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1'), {
+          ...offer(),
+          commissionCents: 99_999,
+        }),
+      );
+    });
+
+    it('REFUSES writing a review note as the partner', async () => {
+      // The refusal reason is the admin's words, shown back to the partner.
+      await seedOwned();
+      await assertFails(
+        setDoc(
+          doc(dbOf(P1), 'partners', PID, 'offers', 'o1'),
+          offer({ reviewNote: 'Approuvé par moi-même' }),
+        ),
+      );
+    });
+
+    it('lets a visitor read the offers', async () => {
+      // /p/CODE renders for someone with no account at all.
+      await seedOwned();
+      await consoleWrite(
+        'partners/' + PID + '/offers/o1',
+        offer({ status: 'approved' }),
+      );
+      await assertSucceeds(
+        getDoc(doc(env.unauthenticatedContext().firestore() as never, 'partners', PID, 'offers', 'o1')),
+      );
+    });
+
+    it('lets the owner withdraw an offer', async () => {
+      await seedOwned();
+      await consoleWrite('partners/' + PID + '/offers/o1', offer());
+      await assertSucceeds(
+        deleteDoc(doc(dbOf(P1), 'partners', PID, 'offers', 'o1')),
+      );
+    });
+  });
+
   describe('the partner code lock', () => {
     /**
      * Codes are unique because a lock DOCUMENT holds them, the same way

@@ -163,12 +163,44 @@ export async function PATCH(req: Request) {
     patch.rateRecurringBps = Math.round(body.rateRecurringBps);
   }
 
-  if (Object.keys(patch).length === 0) {
+  // A logo the admin pastes, not one a partner uploads. Firebase Storage is
+  // not configured in this project, so an upload path would mean a bucket,
+  // storage rules, resizing and image moderation — a batch of its own. A gym
+  // that wants its logo emails a link.
+  if (typeof body.logoUrl === 'string') {
+    const url = body.logoUrl.trim();
+    if (url && !url.startsWith('https://')) {
+      return NextResponse.json({ error: 'bad_logo' }, { status: 400 });
+    }
+    patch.logoUrl = url || null;
+  }
+
+  /*
+   * Legal identity goes in a PRIVATE subcollection, never on the partner
+   * document.
+   *
+   * partners/{id} is world-readable — /p/CODE has to render for a signed-out
+   * visitor — so a SIRET written there would be public, and for a
+   * micro-entrepreneur that is personal data. Same reasoning, and the same
+   * shape, as users/{uid}/private/.
+   */
+  const legal: Record<string, unknown> = {};
+  if (typeof body.legalName === 'string') legal.legalName = body.legalName.trim() || null;
+  if (typeof body.siret === 'string') {
+    legal.siret = body.siret.replace(/\s/g, '') || null;
+  }
+
+  if (Object.keys(patch).length === 0 && Object.keys(legal).length === 0) {
     return NextResponse.json({ error: 'nothing_to_do' }, { status: 400 });
   }
 
   try {
-    await db.doc(`partners/${id}`).set(patch, { merge: true });
+    if (Object.keys(patch).length > 0) {
+      await db.doc(`partners/${id}`).set(patch, { merge: true });
+    }
+    if (Object.keys(legal).length > 0) {
+      await db.doc(`partners/${id}/private/legal`).set(legal, { merge: true });
+    }
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'failed' }, { status: 500 });

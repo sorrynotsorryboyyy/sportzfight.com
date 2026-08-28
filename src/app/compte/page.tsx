@@ -23,6 +23,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { battleHistory } from '@/lib/firebase/battles';
 import { reconcileCredits } from '@/lib/firebase/stats';
 import { resumeDailyBonus } from '@/lib/firebase/daily';
+import { apiGet } from '@/lib/firebase/api';
 import { claimReferral } from '@/lib/partners/attribution';
 import {
   hasDetailedStats,
@@ -119,6 +120,7 @@ export default function AccountPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const { profile, needsUsernameFix, avatar } = useAuth();
   const [history, setHistory] = useState<BattleWithId[] | null>(null);
+  const [isPartner, setIsPartner] = useState(false);
 
   const uid = user?.uid ?? null;
 
@@ -161,6 +163,25 @@ export default function AccountPage() {
       alive = false;
     };
   }, [uid, limit]);
+
+  // Is this account a partner? /partenaire used to be reachable only by typing
+  // the URL, which was tolerable while it was a read-only scoreboard someone
+  // was emailed a link to once. It stopped being tolerable when partners had
+  // to author their offers there: told "add them in your space" with no way to
+  // find their space, they email instead, and the review queue becomes an
+  // inbox.
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    void apiGet<{ partner: { code: string } | null }>('/api/partner/stats').then(
+      (r) => {
+        if (alive && r.ok && r.data?.partner) setIsPartner(true);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [uid]);
 
   if (!isFirebaseConfigured) return <SetupNotice />;
   if (authLoading || !uid || !profile) {
@@ -305,6 +326,19 @@ export default function AccountPage() {
           </div>
         )}
       </section>
+
+      {isPartner && (
+        <Link href="/partenaire" className="focus-ring block rounded-xl">
+          <Card padding="sm" radius="md" sheen={false} className="text-center">
+            <p className="text-xs font-bold uppercase tracking-widest text-volt-500">
+              Espace partenaire →
+            </p>
+            <p className="mt-0.5 text-2xs text-ink-500">
+              Tes filleuls, tes relevés, tes offres
+            </p>
+          </Card>
+        </Link>
+      )}
 
       <Footer className="mt-2" />
     </main>

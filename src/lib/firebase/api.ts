@@ -69,3 +69,7 @@ export const apiPost = <T,>(path: string, body?: unknown) =>
 
 export const apiPatch = <T,>(path: string, body: unknown) =>
   call<T>(path, { method: 'PATCH', body });
+
+/** No body: what to delete belongs in the path, not in a payload. */
+export const apiDelete = <T,>(path: string) =>
+  call<T>(path, { method: 'DELETE' });

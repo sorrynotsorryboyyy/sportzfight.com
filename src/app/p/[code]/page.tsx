@@ -7,7 +7,7 @@ import { Footer } from '@/components/ui/Footer';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { adminDb } from '@/lib/server/firebase-admin';
 import { normaliseCode } from '@/lib/partners/commission';
-import type { PartnerPublic } from '@/lib/partners/types';
+import { OFFERS_MAX, type PartnerPublic } from '@/lib/partners/types';
 import { SITE_NAME } from '@/lib/site';
 import { RememberCode } from './RememberCode';
 
@@ -22,7 +22,15 @@ import { RememberCode } from './RememberCode';
  * visitor signs up, because attribution has to be written by the server.
  */
 
-async function loadPartner(raw: string): Promise<PartnerPublic | null> {
+interface LandingOffer {
+  id: string;
+  label: string;
+  details: string | null;
+}
+
+type Landing = PartnerPublic & { offers: LandingOffer[] };
+
+async function loadPartner(raw: string): Promise<Landing | null> {
   const code = normaliseCode(raw);
   if (!code) return null;
 
@@ -38,6 +46,28 @@ async function loadPartner(raw: string): Promise<PartnerPublic | null> {
     if (found.empty) return null;
 
     const d = found.docs[0];
+
+    // Approved only, and capped. A partner cannot flood the page — the rules
+    // force every new offer to 'pending' — but the limit is here too so the
+    // layout does not depend on the review queue being kept tidy.
+    let offers: LandingOffer[] = [];
+    try {
+      const snap = await d.ref
+        .collection('offers')
+        .where('status', '==', 'approved')
+        .orderBy('createdAt', 'asc')
+        .limit(OFFERS_MAX)
+        .get();
+      offers = snap.docs.map((o) => ({
+        id: o.id,
+        label: o.get('label') as string,
+        details: (o.get('details') as string | null) ?? null,
+      }));
+    } catch {
+      // Caught SEPARATELY on purpose: a missing index or a rules change must
+      // take down the offers block, never the page a poster points at.
+    }
+
     // Inactive partners keep their page — a printed poster outlives a contract,
     // and a dead link is worse than a page that simply stops earning.
     return {
@@ -47,6 +77,7 @@ async function loadPartner(raw: string): Promise<PartnerPublic | null> {
       city: d.get('city') ?? null,
       blurb: d.get('blurb') ?? null,
       logoUrl: d.get('logoUrl') ?? null,
+      offers,
     };
   } catch {
     return null;
@@ -87,6 +118,17 @@ export default async function PartnerLanding({
       <PageHeader />
 
       <section>
+        {/* Pasted by the admin, never uploaded — Firebase Storage is not set
+            up here, and a partner-supplied image would need the same review an
+            offer gets, which is far harder to do at a glance. */}
+        {partner.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={partner.logoUrl}
+            alt=""
+            className="mb-3 h-12 w-auto max-w-40 object-contain"
+          />
+        )}
         <p className="text-3xs font-bold uppercase tracking-widest text-volt-500">
           {partner.kind === 'gym' ? 'Salle partenaire' : 'Coach partenaire'}
           {partner.city ? ` · ${partner.city}` : ''}
@@ -109,6 +151,38 @@ export default async function PartnerLanding({
             {partner.name}
           </p>
         </Card>
+      )}
+
+      {/* BEFORE the call to action, deliberately: the offer is the reason to
+          sign up HERE rather than anywhere else, so it has to be read before
+          the button. Below it, it would be decoration. */}
+      {partner.offers.length > 0 && (
+        <section>
+          <h2 className="text-3xs font-bold uppercase tracking-widest text-volt-500">
+            Tes avantages chez {partner.name}
+          </h2>
+          <ul className="mt-2 flex flex-col gap-2">
+            {partner.offers.map((o) => (
+              <li key={o.id}>
+                <Card padding="md" radius="md">
+                  <p className="text-sm font-bold text-ink-100">{o.label}</p>
+                  {o.details && (
+                    <p className="mt-1 text-xs leading-relaxed text-ink-400">
+                      {o.details}
+                    </p>
+                  )}
+                </Card>
+              </li>
+            ))}
+          </ul>
+          {/* Not optional. This sentence is what separates "the gym promised
+              you a bottle" from "SportzFight promised you a bottle", and the
+              second is a consumer-law problem. */}
+          <p className="mt-2 text-3xs leading-relaxed text-ink-600">
+            À récupérer sur place, chez {partner.name}. Ces avantages sont
+            proposés par le partenaire, pas par SportzFight.
+          </p>
+        </section>
       )}
 
       <Card className="border-volt-500/30">

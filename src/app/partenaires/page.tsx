@@ -163,6 +163,17 @@ export default function PartnersProgramme() {
             </Button>
           </Link>
         </Card>
+
+        {/* A returning partner used to land here and bounce: the page's only
+            action was "contact us", and their own space was reachable solely
+            by typing the URL. That stopped being tolerable when offers became
+            something they author there. */}
+        <p className="mt-3 text-center text-xs text-ink-500">
+          Déjà partenaire ?{' '}
+          <Link href="/partenaire" className="focus-ring text-volt-500 underline underline-offset-2">
+            Accéder à ton espace
+          </Link>
+        </p>
       </section>
 
       <Footer className="mt-auto border-t border-ink-800/60 pt-6" />
