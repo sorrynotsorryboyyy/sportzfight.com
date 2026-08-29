@@ -97,10 +97,15 @@ export default function MentionsLegales() {
           compétent : <Fill field="mediator">nom et coordonnées du médiateur — obligatoire dès
           que la boutique encaisse des paiements</Fill>.
         </p>
+        {/* The EU online dispute resolution platform was WITHDRAWN by directive
+            (EU) 2025/2647. Pointing consumers at a dead address is worse than
+            saying nothing: someone with a genuine complaint follows it, finds
+            nothing, and gives up. The French mediator above is the route that
+            actually exists. */}
         <p>
-          La plateforme européenne de règlement en ligne des litiges est
-          accessible à l’adresse{' '}
-          <em>ec.europa.eu/consumers/odr</em>.
+          La saisine du médiateur doit être précédée d’une réclamation écrite
+          adressée directement à l’éditeur, restée sans réponse satisfaisante
+          sous deux mois.
         </p>
       </Section>
     </LegalPage>

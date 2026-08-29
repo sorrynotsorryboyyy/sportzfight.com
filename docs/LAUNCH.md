@@ -46,7 +46,7 @@ chose en silence.
 ## 4. Vérifications automatiques
 
 - [ ] `npm run lint && npm run typecheck && npm run build`
-- [ ] `npm run test:all` — 469 attendus
+- [ ] `npm run test:all` — 575 attendus (366 unitaires + 209 règles)
 - [ ] `npm run check:launch`
 
 ## 5. Vérifications humaines
@@ -90,4 +90,12 @@ Aucun test ne les remplace.
 - **Abdos, burpees, tractions** — pas de détecteur. Un lot chacun.
 - **Le merch** — ni stock, ni fournisseur, ni expédition.
 - **Le versement automatique aux partenaires** — Stripe Connect, un lot entier.
-  Aujourd'hui tu vires à la main et tu l'enregistres dans `/admin`.
+  Aujourd'hui l'app calcule le relevé mensuel, tu vires depuis ta banque et tu
+  l'enregistres dans `/admin` → Versements.
+- **Le SIRET des partenaires** — saisi à la main depuis `/admin`, pas demandé
+  dans le formulaire de candidature.
+- **Le logo des partenaires** — une URL que tu colles, pas un envoi de fichier :
+  Firebase Storage n'est pas configuré et une image demande la même relecture
+  qu'une offre, en bien moins évident.
+- **La galerie d'avatars** — jamais construite, et rien n'y fait référence.
+  Elle attend tes PNG.
