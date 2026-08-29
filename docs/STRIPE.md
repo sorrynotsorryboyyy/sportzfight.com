@@ -62,13 +62,18 @@ Sur **Vercel → Settings → Environment Variables**, en Production :
 
 ```
 STRIPE_SECRET_KEY=sk_live_…
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_…
 STRIPE_PRICE_PREMIUM=price_…
 STRIPE_PRICE_SOUTIEN=price_…
 STRIPE_WEBHOOK_SECRET=whsec_…
 FIREBASE_SERVICE_ACCOUNT={"project_id":…}
 NEXT_PUBLIC_SITE_URL=https://ton-domaine.com
 ```
+
+> **Pas de clé publiable.** Beaucoup de tutoriels demandent une
+> `pk_…` ; ce projet n'en a pas besoin et le code ne la lit nulle part. Le
+> paiement passe par Stripe Checkout, une page hébergée par Stripe : la carte
+> n'est jamais saisie sur sportzfight.com, donc le navigateur n'a aucune clé à
+> connaître. La chercher te ferait perdre du temps.
 
 **Les cinq premières fonctionnent ensemble ou pas du tout.** S'il en manque une,
 la boutique reste en « Bientôt » et les routes répondent 503 — c'est voulu : un
@@ -83,7 +88,17 @@ Puis **redéployer** : les variables ne s'appliquent pas à chaud.
 
 ## 4. Tester en mode test
 
-Avec les clés `sk_test_` / `pk_test_` :
+> **« Je peux faire un achat à 0 € pour vérifier ? »** Non, et c'est important :
+> Stripe traite un montant nul comme un cas particulier et **n'émet pas
+> `invoice.paid`**. Or c'est précisément l'événement qui écrit le registre
+> `payments` et calcule la commission partenaire. Un test à 0 € te donnerait un
+> « ça marche » qui ne prouve rien du chemin réel.
+>
+> Le **mode test** fait mieux : un vrai paiement de 5,99 €, toute la chaîne
+> exercée, et pas un centime qui bouge. C'est ce qui suit.
+
+Avec la clé `sk_test_` (Stripe > Développeurs > Clés API, interrupteur
+**Mode test** activé en haut à droite) :
 
 1. S'abonner avec **`4242 4242 4242 4242`**, n'importe quelle date future,
    n'importe quel CVC.
@@ -97,6 +112,16 @@ Avec les clés `sk_test_` / `pk_test_` :
 
 **Cartes utiles** : `4000 0000 0000 9995` (refus), `4000 0025 0000 3155`
 (3D Secure).
+
+### Vérifier sans deviner
+
+```
+npm run check:stripe
+```
+
+Répond en clair : les cinq variables sont-elles là, le compte répond-il, les
+deux prix existent-ils, le webhook est-il branché sur les cinq événements.
+C'est la commande à lancer avant de chercher ailleurs.
 
 ---
 
